@@ -1,7 +1,9 @@
 mod app;
 mod body;
 mod client;
+mod contacts;
 mod filepicker;
+mod compose_panel;
 mod compose_ui;
 mod daemon;
 mod ipc;
@@ -76,6 +78,11 @@ enum Cmd {
     },
     /// Ask the daemon to check for new mail now.
     Sync,
+    /// Search the address book ([contacts] sources): "Name <email>" lines.
+    Contacts {
+        /// Text to look for (in names and addresses); all contacts if omitted.
+        query: Option<String>,
+    },
     /// Add, sign in, test and list accounts.
     #[command(subcommand)]
     Account(AccountCmd),
@@ -146,6 +153,20 @@ fn main() -> Result<()> {
         }
         Some(Cmd::Watch { json }) => return client::watch(&socket, json),
         Some(Cmd::Sync) => return client::sync(&socket),
+        Some(Cmd::Contacts { ref query }) => {
+            let (all, warnings) = contacts::load(&cfg.contacts.sources, cache.as_deref());
+            for w in warnings {
+                eprintln!("{w}");
+            }
+            let found: Vec<&contacts::Contact> = match query {
+                Some(q) => contacts::search(&all, q, usize::MAX),
+                None => all.iter().collect(),
+            };
+            for c in found {
+                println!("{}", c.display());
+            }
+            return Ok(());
+        }
         _ => {}
     }
     if cfg.accounts.is_empty() {
@@ -254,6 +275,14 @@ fn main() -> Result<()> {
         })
         .context("input thread")?;
 
+    // The address book loads in the background (EDS may need a moment).
+    {
+        let (sources, cache, tx) = (cfg.contacts.sources.clone(), cache.clone(), tx.clone());
+        std::thread::spawn(move || {
+            let (list, _) = contacts::load(&sources, cache.as_deref());
+            let _ = tx.send(Event::Contacts(list));
+        });
+    }
     let mut app = App::new(cfg, keymap, picker, tx, accounts);
     app.gpg = gpg;
     if !warnings.is_empty() {

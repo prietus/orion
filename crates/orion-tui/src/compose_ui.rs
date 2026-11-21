@@ -39,6 +39,8 @@ pub struct Compose {
     pub untrusted: Vec<(String, String, String)>,
     /// File browser open to choose attachments.
     pub picker: Option<crate::filepicker::FilePicker>,
+    /// The built-in editing panel (`None`: `$EDITOR` + review screen).
+    pub panel: Option<crate::compose_panel::Panel>,
     pub confirm_discard: bool,
 }
 
@@ -106,6 +108,8 @@ impl App {
                 return;
             }
         };
+        let builtin = self.cfg.ui.composer == orion_core::config::Composer::Builtin;
+        let panel = builtin.then(|| crate::compose_panel::Panel::new(&draft));
         self.compose = Some(Compose {
             account,
             draft,
@@ -119,9 +123,13 @@ impl App {
             missing_keys: Vec::new(),
             untrusted: Vec::new(),
             picker: None,
+            panel,
             confirm_discard: false,
         });
-        self.pending_editor = Some(path);
+        if !builtin {
+            self.pending_editor = Some(path);
+        }
+        self.needs_clear = true;
     }
 
     /// Called by the main loop when `$EDITOR` exits.
@@ -155,6 +163,10 @@ impl App {
                 }
             }
             Err(e) => c.error = Some(format!("{e} — press e to fix it")),
+        }
+        // Back from $EDITOR into the panel: it shows what was written there.
+        if c.panel.is_some() && c.error.is_none() {
+            c.panel = Some(crate::compose_panel::Panel::new(&c.draft));
         }
         self.needs_clear = true;
     }
@@ -272,8 +284,44 @@ impl App {
         if c.sending {
             return true; // wait for the result
         }
+        // The panel edits; its commands map onto the review screen's keys.
+        let mut code = ev.code;
+        if let Some(panel) = &mut c.panel {
+            use crate::compose_panel::PanelAction as P;
+            let action = panel.key(*ev, &self.contacts);
+            if action != P::None {
+                panel.apply(&mut c.draft);
+                c.error = None;
+            }
+            code = match action {
+                P::None => {
+                    c.confirm_discard = false;
+                    return true;
+                }
+                P::Send => {
+                    if !c.encrypt_touched
+                        && self.cfg.pgp.encrypt_when_possible
+                        && let Some(g) = &self.gpg
+                    {
+                        let mut all = compose::recipients(&c.draft);
+                        all.push(compose::addr_spec(&c.draft.from));
+                        c.draft.encrypt = all.len() > 1 && g.missing_keys(&all).is_empty();
+                    }
+                    KeyCode::Char('y')
+                }
+                P::ExternalEditor => KeyCode::Char('e'),
+                P::Attach => KeyCode::Char('a'),
+                P::DropAttachment => KeyCode::Char('d'),
+                P::ToggleSign => KeyCode::Char('S'),
+                P::ToggleEncrypt => KeyCode::Char('E'),
+                P::LookupKeys => KeyCode::Char('k'),
+                P::AcceptKeys => KeyCode::Char('A'),
+                P::Close => KeyCode::Char('q'),
+            };
+        }
+        let Some(c) = &mut self.compose else { return false };
         let confirm = std::mem::replace(&mut c.confirm_discard, false);
-        match ev.code {
+        match code {
             KeyCode::Char('y') | KeyCode::Char('s') => self.compose_send(None),
             KeyCode::Char('e') => {
                 c.info = None;
@@ -341,6 +389,10 @@ impl App {
                 }
             }
             KeyCode::Char('q') | KeyCode::Esc => {
+                if c.panel.is_some() {
+                    self.rewrite_draft_file();
+                }
+                let Some(c) = &mut self.compose else { return true };
                 if confirm {
                     let path = c.path.clone();
                     self.compose = None;
@@ -348,7 +400,8 @@ impl App {
                     self.status = format!("draft kept in {}", path.display());
                 } else {
                     c.confirm_discard = true;
-                    c.info = Some("press q again to close (the draft file is kept)".into());
+                    let again = if c.panel.is_some() { "Esc/Ctrl-Q" } else { "q" };
+                    c.info = Some(format!("press {again} again to close (the draft file is kept)"));
                 }
             }
             _ => {}

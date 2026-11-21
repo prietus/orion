@@ -138,6 +138,8 @@ pub struct App {
     pub wide: bool,
     /// Debounce counter of the preview that follows the list selection.
     preview_seq: u64,
+    /// Address book for suggestions ([contacts] sources), loaded at startup.
+    pub contacts: Vec<crate::contacts::Contact>,
 }
 
 impl App {
@@ -171,6 +173,7 @@ impl App {
             sync_error: None,
             wide: false,
             preview_seq: 0,
+            contacts: Vec::new(),
         }
     }
 
@@ -251,6 +254,7 @@ impl App {
             Event::KeysLocated { untrusted, missing } => self.on_keys_located(untrusted, missing),
             Event::Snapshot { id, result } => self.on_snapshot(id, result),
             Event::Preview { seq } => self.on_preview(seq),
+            Event::Contacts(list) => self.contacts = list,
             Event::PreviewRead { id } => self.on_preview_read(id),
             Event::Removed { account, mailbox, result } => self.on_removed(account, mailbox, result),
             Event::RemoteImages { account, mailbox, id, images, failed } => self.on_remote_images(account, mailbox, id, images, failed),

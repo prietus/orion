@@ -502,6 +502,9 @@ fn draw_reader(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_compose(f: &mut Frame, app: &mut App, area: Rect) {
+    if app.compose.as_ref().is_some_and(|c| c.panel.is_some()) {
+        return draw_compose_panel(f, app, area);
+    }
     let Some(c) = &app.compose else { return };
     let account = app.accounts.get(c.account).map(|a| a.name.clone()).unwrap_or_default();
     let label = |k: &str| Span::styled(format!("{k:>11}  "), Style::new().fg(t().overlay));
@@ -648,6 +651,15 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             ("ctrl-t", "hidden"),
             ("esc", "cancel"),
         ]),
+        _ if app.compose.as_ref().is_some_and(|c| c.panel.is_some()) => hints(&[
+            ("tab", "next field"),
+            ("ctrl-s", "send"),
+            ("ctrl-a", "attach"),
+            ("ctrl-g", "sign"),
+            ("ctrl-k", "encrypt"),
+            ("ctrl-e", "$EDITOR"),
+            ("ctrl-q", "close"),
+        ]),
         _ if app.compose.is_some() => hints(&[
             ("y", "send"),
             ("e", "edit"),
@@ -691,6 +703,145 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     let [l, r] = Layout::horizontal([Constraint::Fill(1), Constraint::Length(right_w)]).areas(area);
     f.render_widget(left, l);
     f.render_widget(right, r);
+}
+
+/// The built-in compose panel: header fields, suggestions, Vim body.
+fn draw_compose_panel(f: &mut Frame, app: &mut App, area: Rect) {
+    use crate::compose_panel::Field;
+    let th = t();
+    let Some(c) = app.compose.as_mut() else { return };
+    let account = app.accounts.get(c.account).map(|a| a.name.clone()).unwrap_or_default();
+    let title = if c.sending { " Sending… ".to_string() } else { " New message ".to_string() };
+    let block = pane(title, true);
+    let inner = block.inner(area);
+    let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
+    f.render_widget(block, area);
+    let Some(p) = c.panel.as_mut() else { return };
+    let label_w = 10usize;
+    let label = |k: &str, focused: bool| {
+        Span::styled(format!("{k:<label_w$}"), if focused { Style::new().fg(th.accent).bold() } else { Style::new().fg(th.overlay) })
+    };
+
+    // ---- header
+    let mut lines: Vec<Line> = vec![Line::from(vec![
+        label("From", false),
+        Span::styled(c.draft.from.clone(), Style::new().fg(th.subtext)),
+        Span::styled(format!("  · {account}"), Style::new().fg(th.overlay)),
+    ])];
+    let mut field_row: Vec<(Field, usize)> = Vec::new();
+    for field in [Field::To, Field::Cc, Field::Bcc] {
+        let focused = p.field == field;
+        field_row.push((field, lines.len()));
+        let mut spans = vec![label(field.label(), focused)];
+        for a in p.list(field) {
+            spans.push(Span::styled(format!(" {a} "), Style::new().fg(th.text).bg(th.selection)));
+            spans.push(Span::raw(" "));
+        }
+        if focused {
+            spans.push(Span::styled(p.input.clone(), Style::new().fg(th.text)));
+            spans.push(Span::styled("█", Style::new().fg(th.accent)));
+        }
+        lines.push(Line::from(spans));
+    }
+    let subject_focused = p.field == Field::Subject;
+    let mut subject = vec![label("Subject", subject_focused), Span::styled(p.subject.clone(), Style::new().fg(th.text).bold())];
+    if subject_focused {
+        subject.push(Span::styled("█", Style::new().fg(th.accent)));
+    }
+    lines.push(Line::from(subject));
+    // Always shown, so it is clear how to attach.
+    let mut spans = vec![label("Attach", false)];
+    if c.draft.attachments.is_empty() {
+        spans.push(Span::styled("none", Style::new().fg(th.overlay)));
+    }
+    for a in &c.draft.attachments {
+        spans.push(Span::styled(format!("{} {} ({})  ", Icon::Attachment.glyph(), a.name, human_size(a.size())), Style::new().fg(th.accent2)));
+    }
+    spans.push(Span::styled("  ctrl-a", Style::new().fg(th.accent2).bold()));
+    spans.push(Span::styled(" add", Style::new().fg(th.overlay)));
+    if !c.draft.attachments.is_empty() {
+        spans.push(Span::styled("  ctrl-x", Style::new().fg(th.accent2).bold()));
+        spans.push(Span::styled(" remove last", Style::new().fg(th.overlay)));
+    }
+    lines.push(Line::from(spans));
+    let on = |b: bool, what: &str| {
+        if b { Span::styled(format!("{what} ✓  "), Style::new().fg(th.ok).bold()) } else { Span::styled(format!("{what} ✗  "), Style::new().fg(th.overlay)) }
+    };
+    lines.push(Line::from(vec![
+        label("OpenPGP", false),
+        Span::styled(format!("{} ", Icon::Encrypted.glyph()), Style::new().fg(th.subtext)),
+        on(c.draft.sign, "sign"),
+        on(c.draft.encrypt, "encrypt"),
+    ]));
+    if let Some(e) = &c.error {
+        lines.push(Line::styled(format!("✘ {e}"), Style::new().fg(th.error).bold()));
+    }
+    if let Some(i) = &c.info {
+        lines.push(Line::styled(i.clone(), Style::new().fg(th.warn)));
+    }
+    for (addr, fpr, uid) in &c.untrusted {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {addr}  ")),
+            Span::styled(orion_crypto::gpg::pretty_fingerprint(fpr), Style::new().fg(th.accent).bold()),
+            Span::styled(format!("  {uid}"), Style::new().fg(th.overlay)),
+        ]));
+    }
+    let header = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let header_h = (header.line_count(inner.width) as u16).min(inner.height.saturating_sub(3));
+    let [head, rule, body] = Layout::vertical([Constraint::Length(header_h), Constraint::Length(1), Constraint::Fill(1)]).areas(inner);
+    f.render_widget(header, head);
+    let mode = match p.body.mode {
+        edtui::EditorMode::Insert => " INSERT ",
+        edtui::EditorMode::Visual => " VISUAL ",
+        edtui::EditorMode::Search => " SEARCH ",
+        edtui::EditorMode::Normal => " NORMAL ",
+    };
+    let body_focused = p.field == Field::Body;
+    let rule_line = if body_focused {
+        Line::from(vec![
+            Span::styled(mode, Style::new().fg(th.surface).bg(th.accent).bold()),
+            Span::styled("─".repeat(rule.width.saturating_sub(mode.len() as u16) as usize), Style::new().fg(th.selection_focused)),
+        ])
+    } else {
+        Line::styled("─".repeat(rule.width as usize), Style::new().fg(th.selection_focused))
+    };
+    f.render_widget(rule_line, rule);
+
+    // ---- body: the Vim-like editor
+    let theme = edtui::EditorTheme::default()
+        .base(Style::new().fg(th.text))
+        .cursor_style(if body_focused { Style::new().fg(th.surface).bg(th.accent) } else { Style::new().fg(th.text) })
+        .selection_style(Style::new().bg(th.selection_focused))
+        .hide_status_line();
+    f.render_widget(edtui::EditorView::new(&mut p.body).theme(theme).wrap(true), body);
+
+    // ---- suggestions under the address field being typed
+    if let Some(&(_, row)) = field_row.iter().find(|(fl, _)| *fl == p.field)
+        && !p.suggestions.is_empty()
+    {
+        let w = p.suggestions.iter().map(|s| s.display().chars().count()).max().unwrap_or(20).clamp(30, 70) as u16 + 4;
+        let h = p.suggestions.len() as u16 + 2;
+        let y = head.y + row as u16 + 1;
+        let rect = Rect::new(head.x + label_w as u16, y, w.min(inner.width.saturating_sub(label_w as u16)), h.min(area.bottom().saturating_sub(y)));
+        let items: Vec<Line> = p
+            .suggestions
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let name = format!(" {}", if s.name.is_empty() { s.email.clone() } else { s.name.clone() });
+                let email = if s.name.is_empty() { String::new() } else { format!("  {}", s.email) };
+                let pad = (rect.width as usize).saturating_sub(2 + name.chars().count() + email.chars().count());
+                let line = Line::from(vec![
+                    Span::styled(name, Style::new().fg(th.text).bold()),
+                    Span::styled(email, Style::new().fg(if i == p.sel { th.subtext } else { th.overlay })),
+                    Span::raw(" ".repeat(pad)),
+                ]);
+                if i == p.sel { line.style(selected(true)) } else { line }
+            })
+            .collect();
+        f.render_widget(Clear, rect);
+        f.render_widget(Paragraph::new(items).style(popup_bg()).block(pane(String::new(), true)), rect);
+    }
 }
 
 /// Key hints: the key highlighted, what it does faint.
@@ -1176,6 +1327,42 @@ mod shots {
         dump(&mut app, 150, 40, &dir.join("reader.json"));
         app.mode = crate::app::Mode::MoveTo { id, key: (0, "INBOX".into()), filter: "ar".into(), sel: 0 };
         dump(&mut app, 150, 40, &dir.join("move.json"));
+        // The compose panel, typing "lu" in To.
+        app.mode = crate::app::Mode::Normal;
+        app.contacts = vec![
+            crate::contacts::Contact { name: "Lucía Pérez".into(), email: "lucia@example.com".into(), score: 40 },
+            crate::contacts::Contact { name: "Luis Martín".into(), email: "luis@example.net".into(), score: 30 },
+            crate::contacts::Contact { name: "Ana García".into(), email: "ana@example.org".into(), score: 50 },
+        ];
+        let mut draft = orion_core::compose::new_message("Me <me@example.com>", Some("Me"));
+        draft.to = vec!["Ana García <ana@example.org>".into()];
+        draft.subject = "Cena del sábado".into();
+        draft.body = "Hola,\n\n¿Confirmamos a las 21:00?\n\n-- \nMe".into();
+        draft.sign = true;
+        let mut panel = crate::compose_panel::Panel::new(&draft);
+        panel.field = crate::compose_panel::Field::To;
+        let book = app.contacts.clone();
+        for ch in "lu".chars() {
+            panel.key(crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE), &book);
+        }
+        app.compose = Some(crate::compose_ui::Compose {
+            account: 0,
+            draft,
+            text: String::new(),
+            path: std::path::PathBuf::from("/dev/null"),
+            error: None,
+            info: None,
+            sending: false,
+            ticket: 0,
+            encrypt_touched: false,
+            missing_keys: Vec::new(),
+            untrusted: Vec::new(),
+            picker: None,
+            panel: Some(panel),
+            confirm_discard: false,
+        });
+        dump(&mut app, 150, 40, &dir.join("compose.json"));
+        app.compose = None;
         app.mode = crate::app::Mode::Attachments { sel: 0 };
         dump(&mut app, 150, 40, &dir.join("attachments.json"));
         app.mode = crate::app::Mode::Help;

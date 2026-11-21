@@ -45,6 +45,8 @@ pub enum Request {
 
 pub enum Event {
     Input(crossterm::event::Event),
+    /// The address book, loaded in the background.
+    Contacts(Vec<crate::contacts::Contact>),
     /// Time to preview the selected message (debounce `seq`).
     Preview { seq: u64 },
     /// A previewed message has been shown long enough to count as read.

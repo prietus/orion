@@ -360,6 +360,22 @@ impl Store {
         tx.commit().map_err(db_err)
     }
 
+    /// Everyone who sent mail: (name, address, messages), most frequent first.
+    pub fn senders(&self, limit: usize) -> Result<Vec<(String, String, u64)>> {
+        let mut st = self
+            .conn
+            .prepare(
+                "SELECT max(from_name), from_addr, count(*) AS n FROM envelopes
+                 WHERE from_addr LIKE '%@%' GROUP BY lower(from_addr)
+                 ORDER BY n DESC, max(ts) DESC LIMIT ?",
+            )
+            .map_err(db_err)?;
+        st.query_map(params![limit as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as u64)))
+            .map_err(db_err)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(db_err)
+    }
+
     /// Forgets messages that were deleted or moved away on the server.
     pub fn remove(&mut self, account: &str, mailbox: &str, ids: &[MessageId]) -> Result<()> {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(db_err)?;

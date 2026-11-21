@@ -68,6 +68,24 @@ Press `?` inside Orion to see every key binding.
 
 ### Writing mail
 
+Orion writes mail in its own panel (`[ui] composer = "builtin"`, the default):
+`To`/`Cc`/`Bcc` suggest addresses from your address book as you type (↑↓ to
+choose, Enter/Tab/`,` to add, Backspace on an empty field removes the last
+one), then the subject, then the body in a Vim-like editor (`i`, `Esc`, `dd`,
+`u`…). `Tab` moves between fields, `Ctrl-S` sends, `Ctrl-A` attaches,
+`Ctrl-X` drops the last attachment, `Ctrl-G` sign, `Ctrl-K` encrypt, `Ctrl-L`
+looks up missing keys, `Ctrl-Y` accepts them, `Ctrl-E` opens everything in
+`$EDITOR` and comes back, `Ctrl-Q` closes (the draft is kept).
+
+Suggestions come from `[contacts] sources`, in order: `"eds"` (GNOME /
+Evolution address books, including GNOME Online Accounts such as iCloud or
+Google, read over D-Bus without seeing their passwords), `"mail"` (people
+who wrote to you), `"vcard:<file or folder>"`, and `"command:<cmd>"` (lines
+`email<TAB>name`, the mutt query format: khard, abook…). `orion contacts
+[text]` searches it from the shell.
+
+With `composer = "editor"` Orion goes straight to your editor instead:
+
 `c` new message, `r` reply, `R` reply to all, `f` forward (reload moved to
 `Ctrl-R`/`F5`). Orion opens your `$VISUAL`/`$EDITOR` with a template:
 

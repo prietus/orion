@@ -760,7 +760,9 @@ mod sending {
         let mut acc = AccountConfig::new("home", AccountKind::Imap(dv.imap_config(PASSWORD)));
         acc.from = Some("Ana <ana@example.org>".into());
         acc.smtp = Some(SmtpConfig { host: "127.0.0.1".into(), port: smtp_port, tls: TlsMode::None });
-        let cfg = Config { accounts: vec![acc.clone()], ..Default::default() };
+        let mut cfg = Config { accounts: vec![acc.clone()], ..Default::default() };
+        // This test drives the $EDITOR flow; the built-in panel is tested at the end.
+        cfg.ui.composer = orion_core::config::Composer::Editor;
         let (tx, rx) = mpsc::channel();
         let (keymap, _) = Keymap::new(&cfg.keys);
         let accounts = vec![Account {
@@ -856,6 +858,30 @@ mod sending {
         key(&mut app, KeyCode::Char('e'));
         assert_eq!(app.pending_editor.as_deref(), Some(path.as_path()));
         let _ = std::fs::remove_file(&path);
+        app.compose = None;
+        app.pending_editor = None;
+
+        // The built-in panel: address, subject, Vim body, Ctrl-S.
+        app.cfg.ui.composer = orion_core::config::Composer::Builtin;
+        key(&mut app, KeyCode::Char('c'));
+        assert!(app.compose.as_ref().is_some_and(|c| c.panel.is_some()) && app.pending_editor.is_none());
+        typ(&mut app, "carol@example.org");
+        for _ in 0..4 {
+            key(&mut app, KeyCode::Tab); // commit, then Cc, Bcc, Subject
+        }
+        typ(&mut app, "Via the panel");
+        key(&mut app, KeyCode::Enter);
+        typ(&mut app, "iHello from the panel");
+        key(&mut app, KeyCode::Esc);
+        app.on_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        until(&mut app, "sent from the panel", &|a| a.compose.is_none());
+        let mut files: Vec<_> = std::fs::read_dir(out.path()).unwrap().flatten().map(|e| e.path()).collect();
+        assert_eq!(files.len(), 3);
+        files.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+        let msg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(files.last().unwrap()).unwrap()).unwrap();
+        assert_eq!(msg["rcpts"], serde_json::json!(["carol@example.org"]));
+        let data = msg["data"].as_str().unwrap();
+        assert!(data.contains("Subject: Via the panel") && data.contains("Hello from the panel"), "{data}");
         let _ = Command::new("gpgconf").env("GNUPGHOME", gpg_dir.path()).args(["--kill", "all"]).status();
     }
 }

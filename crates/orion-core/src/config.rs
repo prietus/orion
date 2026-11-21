@@ -12,10 +12,27 @@ pub struct Config {
     pub ui: UiConfig,
     pub pgp: PgpConfig,
     pub daemon: DaemonConfig,
+    pub contacts: ContactsConfig,
     /// Action -> list of keys. Replaces the default keys of that action.
     pub keys: BTreeMap<String, Vec<String>>,
     #[serde(rename = "account")]
     pub accounts: Vec<AccountConfig>,
+}
+
+/// Where address suggestions come from (see `orion contacts`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ContactsConfig {
+    /// In order: "eds" (GNOME/Evolution address books, including GNOME Online
+    /// Accounts), "mail" (people who wrote to you), "vcard:<file or folder>",
+    /// "command:<cmd>" (prints "email<TAB>name" lines, the mutt query format).
+    pub sources: Vec<String>,
+}
+
+impl Default for ContactsConfig {
+    fn default() -> Self {
+        ContactsConfig { sources: vec!["eds".into(), "mail".into()] }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -61,6 +78,17 @@ pub struct UiConfig {
     /// Seconds a previewed message must stay on screen to be marked read
     /// (0 = at once). Opening it with Enter marks it at once.
     pub mark_read_after: u64,
+    /// Writing mail: "builtin" (Orion's panel: address suggestions, Vim-like
+    /// body editor; Ctrl-E opens $EDITOR) or "editor" (straight to $EDITOR).
+    pub composer: Composer,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Composer {
+    #[default]
+    Builtin,
+    Editor,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -167,6 +195,7 @@ impl Default for UiConfig {
             list_style: ListStyle::TwoLine,
             layout: LayoutMode::Auto,
             mark_read_after: 2,
+            composer: Composer::Builtin,
         }
     }
 }
@@ -533,6 +562,9 @@ list_style = "two-line"
 layout = "auto"
 # seconds a previewed message must be shown to count as read (0 = at once)
 mark_read_after = 2
+# writing mail: "builtin" (Orion's panel with address suggestions; Ctrl-E
+# opens $EDITOR) or "editor" (straight to $EDITOR)
+composer = "builtin"
 # images hosted on the internet: "ask" (press L in a message), "always", "never"
 remote_images = "ask"
 open_command = "xdg-open"
@@ -554,6 +586,14 @@ keyservers = ["hkps://keys.openpgp.org"]
 autocrypt = true
 
 # Background daemon: `orion daemon` (see contrib/orion.service)
+[contacts]
+# address suggestions when writing mail, in order of preference:
+#   "eds"            GNOME / Evolution address books (incl. GNOME Online Accounts)
+#   "mail"           people who wrote to you (from Orion's cache)
+#   "vcard:~/Contacts"            a .vcf file or folder (vdirsyncer, khard...)
+#   "command:khard email --parsable"   lines "email<TAB>name" (mutt query format)
+sources = ["eds", "mail"]
+
 [daemon]
 # socket = "/run/user/1000/orion.sock"
 notify = true
