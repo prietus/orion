@@ -1,0 +1,27 @@
+[package]
+name = "orion-backends"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.98"
+
+[dependencies]
+orion-core.workspace = true
+mail-parser = { workspace = true, features = ["full_encoding"] }
+memchr = "2.8.3"
+memmap2 = "0.9.12"
+rayon = "1.12.0"
+async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
+tokio = { version = "1.54.1", features = ["rt", "net", "time", "io-util"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls-platform-verifier = "0.7.1"
+futures = "0.3.34"
+ureq = { version = "3.5.2", features = ["platform-verifier", "json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+nom = "8.0.0"
+serde_json = "1.0.154"
+tempfile = "3.27.0"

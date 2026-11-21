@@ -1,0 +1,36 @@
+[package]
+name = "orion-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+rust-version = "1.98"
+
+[[bin]]
+name = "orion"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tempfile = "3.27.0"
+orion-core.workspace = true
+orion-backends.workspace = true
+anyhow.workspace = true
+dirs.workspace = true
+ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
+crossterm.workspace = true
+ratatui-image.workspace = true
+image.workspace = true
+clap.workspace = true
+orion-store = { version = "0.1.0", path = "../orion-store" }
+orion-html = { version = "0.1.0", path = "../orion-html" }
+orion-crypto = { version = "0.1.0", path = "../orion-crypto" }
+zeroize = "1.9.2"
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0.154"
+signal-hook = "0.4.6"
+rpassword = "7.5.5"
+toml.workspace = true
+
+[dev-dependencies]

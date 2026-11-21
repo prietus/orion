@@ -1,0 +1,15 @@
+# Build output
+/target/
+
+# Editors and OS
+*.swp
+*~
+.idea/
+.vscode/
+.DS_Store
+
+# Local files that must never be committed
+*.bak
+*.orig
+.env
+config.local.toml

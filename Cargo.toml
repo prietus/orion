@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/prietus/orion"
+description = "A fast terminal mail client: IMAP, POP3, JMAP and mbox, native HTML and images, OpenPGP with YubiKey"
+
+[workspace.dependencies]
+orion-core = { path = "crates/orion-core" }
+orion-backends = { path = "crates/orion-backends" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+dirs = "6"
+mail-parser = { version = "1.0.1", features = ["full_encoding"] }
+ratatui = "0.30"
+crossterm = "0.29"
+ratatui-image = { version = "11.1.0", default-features = false, features = ["crossterm", "image-defaults"] }
+image = "0.25"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

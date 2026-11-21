@@ -1,0 +1,8 @@
+// Waybar custom module: add "custom/mail" to your modules list.
+"custom/mail": {
+    "exec": "orion status --waybar",
+    "return-type": "json",
+    "interval": 30,
+    "on-click": "orion sync",
+    "format": "{}"
+}

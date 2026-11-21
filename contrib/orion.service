@@ -1,0 +1,22 @@
+# systemd user service for the Orion background daemon.
+#
+#   cp contrib/orion.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now orion.service
+#   journalctl --user -u orion -f        # logs
+#
+# Adjust ExecStart if orion is installed elsewhere (e.g. `cargo install --path crates/orion-tui`
+# puts it in ~/.cargo/bin).
+
+[Unit]
+Description=Orion mail daemon (background sync, new-mail notifications, local API)
+After=network-online.target graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/orion daemon
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

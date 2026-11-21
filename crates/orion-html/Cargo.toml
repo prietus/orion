@@ -1,0 +1,15 @@
+[package]
+name = "orion-html"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.98"
+
+[dependencies]
+ego-tree = "0.11.1"
+scraper = "0.29"
+unicode-width = "0.2"
+
+[dev-dependencies]
+mail-parser = { workspace = true }
