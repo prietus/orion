@@ -3,6 +3,9 @@
 A fast terminal mail client written in Rust, with native HTML and images,
 OpenPGP (YubiKey included) and a background daemon for your status bar.
 
+**Documentation: <https://orion.priet.us>** — installation, getting started,
+every feature, the configuration and key reference, and a FAQ.
+
 ![Orion: folders, message list and message in three panes](docs/screenshot.png)
 
 ## Features

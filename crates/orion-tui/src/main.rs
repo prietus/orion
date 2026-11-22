@@ -51,6 +51,9 @@ struct Args {
     /// Print an example configuration and exit.
     #[arg(long)]
     print_config: bool,
+    /// Print the default key bindings (a Markdown table) and exit.
+    #[arg(long)]
+    print_keys: bool,
     /// Daemon socket (default: $XDG_RUNTIME_DIR/orion.sock, or [daemon] socket).
     #[arg(long, global = true)]
     socket: Option<PathBuf>,
@@ -109,6 +112,15 @@ fn main() -> Result<()> {
     let args = Args::parse();
     if args.print_config {
         print!("{EXAMPLE_CONFIG}");
+        return Ok(());
+    }
+    if args.print_keys {
+        let (keymap, _) = Keymap::new(&Default::default());
+        println!("| Keys | Action | Name in `[keys]` |\n|---|---|---|");
+        for a in keys::Action::ALL {
+            let keys = keymap.labels.get(a.name()).map(|v| v.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+            println!("| {keys} | {} | `{}` |", a.description().replace('|', "\\|"), a.name());
+        }
         return Ok(());
     }
 

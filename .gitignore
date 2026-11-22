@@ -13,3 +13,6 @@
 *.orig
 .env
 config.local.toml
+
+# Built site (tools/wiki/publish.sh)
+/wiki/site/

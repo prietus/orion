@@ -1,0 +1,68 @@
+site_name: Orion
+site_url: https://orion.priet.us/
+site_description: A fast terminal mail client in Rust — IMAP, POP3, JMAP and mbox, native HTML and images, OpenPGP with YubiKey.
+repo_url: https://github.com/prietus/orion
+repo_name: prietus/orion
+edit_uri: edit/main/wiki/docs/
+copyright: Orion is licensed under MIT OR Apache-2.0.
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.details
+
+nav:
+  - Home: index.md
+  - Installation: install.md
+  - Getting started: getting-started.md
+  - Using Orion:
+      - Reading mail: reading.md
+      - HTML and images: html.md
+      - Writing mail: writing.md
+      - OpenPGP and YubiKey: openpgp.md
+      - Daemon and status bars: daemon.md
+  - Accounts and protocols: protocols.md
+  - Reference:
+      - Configuration file: reference/config.md
+      - Keys: reference/keys.md
+      - Command line: reference/cli.md
+  - Privacy and security: privacy.md
+  - FAQ: faq.md
+  - Development: development.md
