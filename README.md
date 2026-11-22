@@ -145,8 +145,10 @@ yourself; answering an encrypted message starts with encryption on.
   html_renderer` picks another browser). Locked down: `<script>` removed, a
   Content-Security-Policy that forbids scripts and every network load, a dead
   proxy and a throwaway profile; only embedded images and the remote ones
-  already loaded with `L` are shown. Text in it cannot be selected; links
-  still work with `o` + number. `V` again goes back.
+  already loaded with `L` are shown. It is an image: text cannot be selected,
+  but each link carries its number in a small badge (as in the text view;
+  `[ui] link_markers = false` hides them), so `o` + number opens it. `V`
+  again goes back.
 - **Remote images** (hosted on the internet, not attached) are never fetched
   by default: downloading them tells the sender you opened the message, when
   and from where. The reader says how many there are; `L` downloads them for

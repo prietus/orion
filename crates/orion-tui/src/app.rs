@@ -854,7 +854,7 @@ impl App {
         }
         r.rendering = true;
         let width = body.width().unwrap_or(100) as u32 * cell_w;
-        let page = crate::snapshot::prepare(&html, &view.attachments);
+        let page = crate::snapshot::prepare_with(&html, &view.attachments, self.cfg.ui.link_markers);
         let (tx, id) = (self.events.clone(), r.id);
         self.status = "drawing the original with Chromium…".into();
         std::thread::spawn(move || {

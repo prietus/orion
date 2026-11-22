@@ -1369,3 +1369,29 @@ mod shots {
         dump(&mut app, 150, 48, &dir.join("help.json"));
     }
 }
+
+#[cfg(test)]
+mod original_view_fit {
+    use ratatui_image::picker::{Picker, ProtocolType};
+
+    /// The original view's image must never be wider than its placement
+    /// (a wider protocol image is cut on the right: the page looks off-centre).
+    #[test]
+    #[allow(deprecated)] // a fixed font size is exactly what this test needs
+    fn snapshot_fits_its_placement() {
+        let mut picker = Picker::from_fontsize(ratatui_image::FontSize { width: 21, height: 46 });
+        picker.set_protocol_type(ProtocolType::Kitty);
+        let doc = orion_html::Doc::parse(r#"<img src="cid:orion-original">"#);
+        for (pane_cols, snap) in [(62u16, (1302u32, 5000u32)), (62, (3150, 9000)), (150, (3150, 9000)), (62, (900, 20000))] {
+            let px = |_: usize| Some(snap);
+            let opts = orion_html::LayoutOptions { cell: (21, 46), max_image_rows: u16::MAX, link_markers: false, image_px: &px };
+            let r = doc.layout(pane_cols, &opts);
+            let p = &r.placements[0];
+            let img = image::DynamicImage::new_rgb8(snap.0, snap.1);
+            let proto = ratatui_image::sliced::SlicedProtocol::new_with_resize(&picker, img, ratatui::layout::Size::new(p.width, p.height), ratatui_image::Resize::Fit(None)).unwrap();
+            let size = proto.size();
+            assert!(p.x + p.width <= pane_cols, "placement inside the pane: {p:?} in {pane_cols}");
+            assert!(size.width <= p.width && size.height <= p.height, "pane {pane_cols}, snapshot {snap:?}: protocol {size:?} vs placement {}x{}", p.width, p.height);
+        }
+    }
+}

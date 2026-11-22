@@ -12,6 +12,7 @@ pub mod css;
 mod layout;
 
 pub use css::{Align, Color};
+pub use build::number_links;
 pub use layout::LayoutOptions;
 
 /// Style of a text fragment.

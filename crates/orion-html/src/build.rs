@@ -62,6 +62,8 @@ struct Ctx {
     matched: HashMap<ego_id::Id, Vec<(u32, u32, u32, usize)>>,
     rules: Vec<css::Rule>,
     links: Vec<String>,
+    /// The `<a>` element of each link, in the same order as `links`.
+    link_nodes: Vec<ego_id::Id>,
     images: Vec<ImageRef>,
 }
 
@@ -71,6 +73,29 @@ mod ego_id {
 }
 
 pub(crate) fn parse_html(html: &str) -> Doc {
+    let (_, doc, _) = parse_dom(html);
+    doc
+}
+
+/// The document as Orion numbers its links (`[n]`, `o` + n), plus a small
+/// badge with that number after each link: Chromium then draws the numbers
+/// where the links are in the original view. No script is involved.
+pub fn number_links(html: &str, badge_style: &str) -> String {
+    use html5ever::{ns, LocalName, QualName};
+    let (mut dom, _, link_nodes) = parse_dom(html);
+    for (i, id) in link_nodes.into_iter().enumerate() {
+        let span = scraper::node::Element::new(
+            QualName::new(None, ns!(html), LocalName::from("span")),
+            vec![html5ever::Attribute { name: QualName::new(None, ns!(), LocalName::from("style")), value: badge_style.into() }],
+        );
+        let Some(mut a) = dom.tree.get_mut(id) else { continue };
+        let mut badge = a.append(scraper::Node::Element(span));
+        badge.append(scraper::Node::Text(scraper::node::Text { text: tendril::StrTendril::from(format!("{}", i + 1)) }));
+    }
+    dom.html()
+}
+
+fn parse_dom(html: &str) -> (Html, Doc, Vec<ego_id::Id>) {
     let dom = Html::parse_document(html);
     let mut rules = Vec::new();
     if let Ok(sel) = Selector::parse("style") {
@@ -86,10 +111,11 @@ pub(crate) fn parse_html(html: &str) -> Doc {
             matched.entry(el.id()).or_default().push((a, b, c, i));
         }
     }
-    let mut ctx = Ctx { matched, rules, links: Vec::new(), images: Vec::new() };
+    let mut ctx = Ctx { matched, rules, links: Vec::new(), link_nodes: Vec::new(), images: Vec::new() };
     let body = Selector::parse("body").ok().and_then(|s| dom.select(&s).next()).unwrap_or_else(|| dom.root_element());
     let root = build_el(body, &Inherited::default(), &mut ctx).unwrap_or_else(empty_root);
-    Doc { root, links: ctx.links, images: ctx.images }
+    let doc = Doc { root, links: ctx.links, images: ctx.images };
+    (dom, doc, ctx.link_nodes)
 }
 
 fn empty_root() -> El {
@@ -192,6 +218,7 @@ fn kind_for(tag: &str, el: &ElementRef<'_>, ctx: &mut Ctx) -> Option<Kind> {
         "a" => match attr("href").map(str::trim) {
             Some(href) if ["http://", "https://", "mailto:"].iter().any(|p| href.len() > p.len() && href[..p.len()].eq_ignore_ascii_case(p)) => {
                 ctx.links.push(href.to_string());
+                ctx.link_nodes.push(el.id());
                 Kind::Link(ctx.links.len() - 1)
             }
             _ => Kind::Inline,

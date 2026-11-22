@@ -43,8 +43,16 @@ fn which(cmd: &str) -> bool {
 
 /// The HTML as Chromium gets it: no scripts, the CSP first in `<head>`, and
 /// the images we have (embedded or already downloaded) inlined.
+#[cfg(test)]
 pub fn prepare(html: &str, attachments: &[Attachment]) -> String {
-    let mut out = strip_scripts(html);
+    prepare_with(html, attachments, false)
+}
+
+/// Like `prepare`; `numbers` adds each link's number (as `o` uses it) as a
+/// small badge, drawn by the browser where the link is.
+pub fn prepare_with(html: &str, attachments: &[Attachment], numbers: bool) -> String {
+    let html = if numbers { orion_html::number_links(html, &badge_style()) } else { html.to_string() };
+    let mut out = strip_scripts(&html);
     for a in attachments.iter().filter(|a| a.is_image()) {
         let data = format!("data:{};base64,{}", a.mime, base64(&a.data));
         let mut targets = Vec::new();
@@ -60,6 +68,21 @@ pub fn prepare(html: &str, attachments: &[Attachment]) -> String {
         }
     }
     insert_csp(&out)
+}
+
+/// The link-number badge: the theme's accent, small, raised like a footnote.
+fn badge_style() -> String {
+    let hex = |c: ratatui::style::Color| match c {
+        ratatui::style::Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        _ => "#cba6f7".into(),
+    };
+    let t = crate::theme::theme();
+    format!(
+        "display:inline-block;margin:0 0 0 3px;padding:0 5px;border-radius:7px;background:{};color:#1e1e2e;\
+         font:bold 11px/15px sans-serif;letter-spacing:0;text-decoration:none;text-transform:none;vertical-align:super;\
+         box-shadow:0 0 0 1px #1e1e2e",
+        hex(t.accent)
+    )
 }
 
 fn strip_scripts(html: &str) -> String {
@@ -215,6 +238,23 @@ mod tests {
     }
 
     #[test]
+    fn link_numbers_match_the_text_view() {
+        // Hidden links and other schemes are not numbered, as in the text view.
+        let html = r#"<html><body><a href="https://one.example">One</a> <div style="display:none"><a href="https://hidden.example">x</a></div>
+            <a href="javascript:alert(1)">bad</a> <a href="mailto:ana@example.org">Two</a> <a href="https://three.example"><img src="cid:x"></a></body></html>"#;
+        let doc = orion_html::Doc::parse(html);
+        assert_eq!(doc.links, ["https://one.example", "mailto:ana@example.org", "https://three.example"]);
+        let out = prepare_with(html, &[], true);
+        let badge = |n: usize| format!(">{n}</span></a>");
+        assert!(out.contains("One<span style=") && out.contains(&badge(1)), "{out}");
+        assert!(out.contains("Two<span") && out.contains(&badge(2)));
+        assert!(out.contains(&badge(3)));
+        assert!(!out.contains(">4</span>"), "only the three counted links");
+        assert!(out.contains("Content-Security-Policy"), "still locked down");
+        assert!(!prepare_with(html, &[], false).contains("<span style"), "off when link markers are off");
+    }
+
+    #[test]
     fn trims_empty_bottom() {
         let mut img = image::RgbImage::from_pixel(10, 1000, image::Rgb([255, 255, 255]));
         img.put_pixel(3, 100, image::Rgb([0, 0, 0]));
@@ -257,7 +297,7 @@ fn snapshot_file() {
     let view = orion_core::parse::message_view(&raw).unwrap();
     let html = view.html.clone().expect("html part");
     let width: u32 = std::env::var("ORION_SNAPSHOT_WIDTH").ok().and_then(|w| w.parse().ok()).unwrap_or(1200);
-    let snap = render(&find_browser(None).expect("chromium"), &prepare(&html, &view.attachments), width).unwrap();
+    let snap = render(&find_browser(None).expect("chromium"), &prepare_with(&html, &view.attachments, true), width).unwrap();
     eprintln!("size {:?}", snap.size);
     std::fs::write(out, snap.png).unwrap();
 }

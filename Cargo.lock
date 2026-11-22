@@ -2423,8 +2423,10 @@ name = "orion-html"
 version = "0.1.0"
 dependencies = [
  "ego-tree",
+ "html5ever",
  "mail-parser",
  "scraper",
+ "tendril",
  "unicode-width",
 ]
 
