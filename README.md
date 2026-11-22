@@ -123,6 +123,12 @@ yourself; answering an encrypted message starts with encryption on.
   relative dates (`[ui] list_style = "compact"` for one line per message).
   `ORION_SHOT_DIR=dir cargo test -p orion-tui screenshots -- --ignored` plus
   `scripts/render_shot.py` produce PNG screenshots for design work.
+- **Conversations**: the list groups messages that answer each other
+  (`Message-ID`, `In-Reply-To`, `References`) into one row: who took part, how
+  many messages (`▸3`), the newest date, and unread/flag/attachment marks if
+  any message has them. `t` expands a conversation (its older messages below,
+  as a tree) or collapses it; `T` switches grouping off and on
+  (`[ui] threads = false` starts without it).
 - **Three panes** when the window is wide (`[ui] layout = "auto"`, or
   `"three-pane"` / `"stacked"`): folders | list | message. Moving through the
   list previews the selected message (after a short pause, so holding `j` does

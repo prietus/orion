@@ -11,6 +11,7 @@ mod keys;
 mod setup;
 mod snapshot;
 mod theme;
+mod threads;
 mod ui;
 mod worker;
 

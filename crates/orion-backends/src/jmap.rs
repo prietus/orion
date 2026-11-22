@@ -287,7 +287,7 @@ impl Backend for JmapBackend {
         let mut added = Vec::with_capacity(total);
         let max = self.session()?.max_get;
         for chunk in new.chunks(max) {
-            let list = self.get(chunk, &["id", "from", "subject", "receivedAt", "sentAt", "keywords", "size", "hasAttachment"])?;
+            let list = self.get(chunk, &["id", "from", "subject", "receivedAt", "sentAt", "keywords", "size", "hasAttachment", "messageId", "inReplyTo", "references"])?;
             added.extend(list.iter().filter_map(to_envelope));
             progress(SyncEvent::Progress { done: added.len(), total });
         }
@@ -482,7 +482,22 @@ fn to_envelope(m: &Value) -> Option<Envelope> {
         flags: keywords(&m["keywords"]),
         size: m["size"].as_u64().unwrap_or(0) as usize,
         has_attachments: m["hasAttachment"].as_bool().unwrap_or(false),
+        message_id: ids(&m["messageId"]).into_iter().next().unwrap_or_default(),
+        parents: {
+            let mut p = ids(&m["references"]);
+            for id in ids(&m["inReplyTo"]) {
+                if !p.contains(&id) {
+                    p.push(id);
+                }
+            }
+            p
+        },
     })
+}
+
+/// JMAP gives message ids as arrays of strings (without angle brackets).
+fn ids(v: &Value) -> Vec<String> {
+    v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
 
 /// `https://host` → `https://host/.well-known/jmap`; a full session URL is kept.

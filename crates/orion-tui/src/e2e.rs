@@ -977,3 +977,43 @@ mod removal {
         assert_eq!(subjects(&mut b, "INBOX"), ["Delta"], "nothing else touched");
     }
 }
+
+// --------------------------------------- conversations against real Dovecot
+
+mod conversations {
+    use super::dovecot::{Dovecot, PASSWORD};
+    use super::Ui;
+    use crossterm::event::KeyCode;
+
+    #[test]
+    fn replies_are_grouped_into_one_row() {
+        let Some(dv) = Dovecot::start() else {
+            eprintln!("dovecot not installed: test skipped");
+            return;
+        };
+        let new = dv.maildir(None).join("new");
+        let put = |name: &str, raw: &str| std::fs::write(new.join(name), raw).unwrap();
+        put("1.a", "From: Ana <ana@x.org>\r\nSubject: Plan\r\nDate: Mon, 17 Nov 2025 10:00:00 +0000\r\nMessage-ID: <p1@x.org>\r\n\r\nfirst\r\n");
+        put("2.b", "From: Luis <luis@x.org>\r\nSubject: Re: Plan\r\nDate: Tue, 18 Nov 2025 10:00:00 +0000\r\nMessage-ID: <p2@x.org>\r\nIn-Reply-To: <p1@x.org>\r\nReferences: <p1@x.org>\r\n\r\nsecond\r\n");
+        put("3.c", "From: Bob <bob@x.org>\r\nSubject: Other\r\nDate: Wed, 19 Nov 2025 10:00:00 +0000\r\nMessage-ID: <o@x.org>\r\n\r\nother\r\n");
+        let dir = tempfile::tempdir().unwrap();
+        let mut ui = Ui::with_imap(dv.imap_config(PASSWORD), &dir.path().join("cache.sqlite"));
+        ui.until("synced", |a| a.envelopes.len() == 3 && !a.loading);
+        assert_eq!(ui.app.visible.len(), 2, "two rows: the conversation and the other message");
+        let conv = ui.app.rows.iter().position(|r| r.members.len() == 2).expect("a two-message conversation");
+        let head = ui.app.visible[conv];
+        assert_eq!(ui.app.envelopes[head].subject, "Re: Plan", "shown by its newest message");
+        ui.app.list_state.select(Some(conv));
+        ui.key(KeyCode::Char('t'));
+        assert_eq!(ui.app.visible.len(), 3, "expanded");
+        assert!(ui.app.rows[conv + 1].child);
+        ui.key(KeyCode::Char('t'));
+        assert_eq!(ui.app.visible.len(), 2, "collapsed again");
+        ui.key(KeyCode::Char('T'));
+        assert_eq!(ui.app.visible.len(), 3, "grouping off: one row per message");
+        // The ids came through the cache too (a restart groups the same way).
+        let store = orion_store::Store::open(&dir.path().join("cache.sqlite")).unwrap();
+        let envs = store.envelopes("fake", "INBOX").unwrap();
+        assert!(envs.iter().any(|e| e.message_id == "p2@x.org" && e.parents == ["p1@x.org"]));
+    }
+}

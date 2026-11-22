@@ -18,6 +18,8 @@ pub fn envelope_from_headers(id: MessageId, raw: &[u8], size: usize) -> Envelope
         flags: Flags::default(),
         size,
         has_attachments: false,
+        message_id: String::new(),
+        parents: Vec::new(),
     };
     let header_end = header_block(raw);
     env.flags = mbox_flags(header_end);
@@ -33,6 +35,17 @@ pub fn envelope_from_headers(id: MessageId, raw: &[u8], size: usize) -> Envelope
         env.timestamp = d.to_timestamp();
         env.date = short_date(&d);
     }
+    env.message_id = root.message_id().map(|id| id.trim_matches(['<', '>', ' ']).to_string()).unwrap_or_default();
+    let mut parents: Vec<String> = Vec::new();
+    for h in [root.references(), root.in_reply_to()].into_iter().flatten() {
+        for id in h.iter() {
+            let id = id.trim_matches(['<', '>', ' ']).to_string();
+            if !id.is_empty() && id != env.message_id && !parents.contains(&id) {
+                parents.push(id);
+            }
+        }
+    }
+    env.parents = parents;
     env
 }
 
@@ -224,5 +237,20 @@ Content-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--b--\r\n";
         assert_eq!(v.attachments.len(), 1);
         assert!(v.attachments[0].is_image());
         assert_eq!(v.attachments[0].name, "x.png");
+    }
+}
+
+#[cfg(test)]
+mod thread_header_tests {
+    use super::*;
+
+    #[test]
+    fn message_ids_for_threads() {
+        let raw = b"From: Ana <ana@x.org>\r\nSubject: Re: Plan\r\nMessage-ID: <c@x.org>\r\nIn-Reply-To: <b@x.org>\r\nReferences: <a@x.org>\r\n <b@x.org>\r\n\r\n";
+        let e = envelope_from_headers(MessageId(1), raw, 10);
+        assert_eq!(e.message_id, "c@x.org");
+        assert_eq!(e.parents, ["a@x.org", "b@x.org"], "References first, In-Reply-To not repeated");
+        let e = envelope_from_headers(MessageId(2), b"Subject: x\r\n\r\n", 1);
+        assert!(e.message_id.is_empty() && e.parents.is_empty());
     }
 }

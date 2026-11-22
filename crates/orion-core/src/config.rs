@@ -81,6 +81,8 @@ pub struct UiConfig {
     /// Writing mail: "builtin" (Orion's panel: address suggestions, Vim-like
     /// body editor; Ctrl-E opens $EDITOR) or "editor" (straight to $EDITOR).
     pub composer: Composer,
+    /// Group the list into conversations (t expands one, T toggles grouping).
+    pub threads: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -196,6 +198,7 @@ impl Default for UiConfig {
             layout: LayoutMode::Auto,
             mark_read_after: 2,
             composer: Composer::Builtin,
+            threads: true,
         }
     }
 }
@@ -565,6 +568,8 @@ mark_read_after = 2
 # writing mail: "builtin" (Orion's panel with address suggestions; Ctrl-E
 # opens $EDITOR) or "editor" (straight to $EDITOR)
 composer = "builtin"
+# group the message list into conversations (t expands one, T toggles)
+threads = true
 # images hosted on the internet: "ask" (press L in a message), "always", "never"
 remote_images = "ask"
 open_command = "xdg-open"

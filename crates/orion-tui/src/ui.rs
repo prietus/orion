@@ -204,38 +204,62 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
     let rows: Vec<Row> = app
         .visible
         .iter()
+        .enumerate()
         .skip(offset)
         .take(height)
-        .map(|&i| {
+        .map(|(pos, &i)| {
             let e = &app.envelopes[i];
-            let unread = !e.flags.seen;
+            let info = app.rows.get(pos).cloned().unwrap_or_default();
+            let thread = !info.members.is_empty();
+            // A conversation counts as unread / flagged / with attachments if any message is.
+            let members: &[usize] = if thread { &info.members } else { std::slice::from_ref(&i) };
+            let any = |f: &dyn Fn(&orion_core::model::Envelope) -> bool| members.iter().any(|&m| f(&app.envelopes[m]));
+            let unread = any(&|m| !m.flags.seen);
+            // Tree lines for the older messages of an expanded conversation.
+            let last_child = info.child && !app.rows.get(pos + 1).is_some_and(|r| r.child && r.key == info.key);
+            let (tree1, tree2) = match (info.child, last_child) {
+                (false, _) => ("", ""),
+                (true, false) => ("├ ", "│ "),
+                (true, true) => ("└ ", "  "),
+            };
+            let tree = |t: &'static str| Span::styled(t, Style::new().fg(th.border));
             let dot = Span::styled(if unread { format!(" {} ", Icon::Unread.glyph()) } else { "   ".into() }, Style::new().fg(th.unread));
             let sender_style = if unread { Style::new().fg(th.text).bold() } else { Style::new().fg(th.subtext) };
             let subject_style = if unread { Style::new().fg(th.text) } else { Style::new().fg(th.overlay) };
             let mut marks: Vec<Span> = Vec::new();
-            if e.flags.flagged {
+            if any(&|m| m.flags.flagged) {
                 marks.push(Span::styled(format!("{} ", Icon::Flagged.glyph()), Style::new().fg(th.flagged)));
             }
-            if e.flags.answered {
+            if any(&|m| m.flags.answered) {
                 marks.push(Span::styled(format!("{} ", Icon::Answered.glyph()), Style::new().fg(th.info)));
             }
-            if e.has_attachments {
+            if any(&|m| m.has_attachments) {
                 marks.push(Span::styled(format!("{} ", Icon::Attachment.glyph()), Style::new().fg(th.subtext)));
             }
             let date = Span::styled(short_date(e.timestamp), Style::new().fg(if unread { th.unread } else { th.overlay }));
             let subject = if e.subject.trim().is_empty() { "(no subject)".to_string() } else { e.subject.clone() };
+            // Who: the conversation's participants and how many messages, or the sender.
+            let mut who = vec![dot, tree(tree1)];
+            if thread {
+                who.push(Span::styled(crate::threads::participants(&app.envelopes, members, 3), sender_style));
+                let n = members.len();
+                let chevron = if info.expanded { "▾" } else { "▸" };
+                who.push(Span::styled(format!(" {chevron}{n}"), Style::new().fg(th.accent2).bold()));
+            } else {
+                who.push(Span::styled(e.sender().to_string(), sender_style));
+            }
             let mut row = if two_line {
                 Row::new(vec![
                     Cell::from(Text::from(vec![
-                        Line::from(vec![dot, Span::styled(e.sender().to_string(), sender_style)]),
-                        Line::from(vec![Span::raw("   "), Span::styled(subject, subject_style)]),
+                        Line::from(who),
+                        Line::from(vec![Span::raw("   "), tree(tree2), Span::styled(subject, subject_style)]),
                     ])),
                     Cell::from(Text::from(vec![Line::from(date), Line::from(marks)]).right_aligned()),
                 ])
                 .height(2)
             } else {
                 Row::new(vec![
-                    Cell::from(Line::from(vec![dot, Span::styled(e.sender().to_string(), sender_style)])),
+                    Cell::from(Line::from(who)),
                     Cell::from(Span::styled(subject, subject_style)),
                     Cell::from(Line::from(marks).right_aligned()),
                     Cell::from(Line::from(date).right_aligned()),
@@ -1286,6 +1310,8 @@ mod shots {
             flags: Flags { seen, flagged, answered, ..Default::default() },
             size: 1000,
             has_attachments: att,
+            message_id: String::new(),
+            parents: Vec::new(),
         };
         let h = 3600;
         let envelopes = vec![
@@ -1299,11 +1325,20 @@ mod shots {
             env(8, "Banco Ejemplo", "avisos@banco.example", "Tu extracto de noviembre ya está disponible", 40 * 24 * h, true, false, false, true),
             env(9, "Renfe", "venta@renfe.example", "Billete Madrid → Oviedo", 400 * 24 * h, true, false, false, true),
         ];
+        // A conversation: Ana wrote, Luis answered, Ana answered again.
+        let mut envelopes = envelopes;
+        envelopes[1].message_id = "cena-3".into();
+        envelopes[1].parents = vec!["cena-1".into(), "cena-2".into()];
+        envelopes.push(Envelope { message_id: "cena-2".into(), parents: vec!["cena-1".into()], ..env(10, "Luis Martín", "luis@example.net", "Re: Cena del sábado", 5 * h, true, false, false, false) });
+        envelopes.push(Envelope { message_id: "cena-1".into(), ..env(11, "Ana García", "ana@example.org", "Cena del sábado", 50 * h, true, false, true, false) });
         app.current = Some((0, "INBOX".into()));
         app.on_event(Event::Envelopes { account: 0, mailbox: "INBOX".into(), envelopes, from_cache: false });
         app.list_state.select(Some(1));
         app.focus = Focus::List;
         dump(&mut app, 150, 40, &dir.join("list.json"));
+        app.on_key(crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char('t'), crossterm::event::KeyModifiers::NONE));
+        dump(&mut app, 150, 40, &dir.join("thread.json"));
+        app.on_key(crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char('t'), crossterm::event::KeyModifiers::NONE));
 
         // The reader, with a signed and encrypted message.
         app.list_state.select(Some(3));

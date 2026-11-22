@@ -11,7 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use orion_core::model::{Envelope, Flag, Flags, MailboxInfo, MessageId, SyncResult, SyncState};
 use orion_core::{Error, Result};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 pub struct Store {
     conn: Connection,
@@ -90,6 +90,8 @@ impl Store {
                      flags     INTEGER NOT NULL,
                      size      INTEGER NOT NULL,
                      has_att   INTEGER NOT NULL,
+                     msgid     TEXT NOT NULL DEFAULT '',
+                     refs      TEXT NOT NULL DEFAULT '',
                      PRIMARY KEY (account, mailbox, uid)
                  ) WITHOUT ROWID;
                  CREATE TABLE bodies (
@@ -181,7 +183,7 @@ impl Store {
         let mut st = self
             .conn
             .prepare_cached(
-                "SELECT uid, from_name, from_addr, subject, ts, date, flags, size, has_att
+                "SELECT uid, from_name, from_addr, subject, ts, date, flags, size, has_att, msgid, refs
                  FROM envelopes WHERE account = ? AND mailbox = ?",
             )
             .map_err(db_err)?;
@@ -196,6 +198,8 @@ impl Store {
                 flags: Flags::from_bits(r.get::<_, i64>(6)? as u8),
                 size: r.get::<_, i64>(7)? as usize,
                 has_attachments: r.get(8)?,
+                message_id: r.get(9)?,
+                parents: r.get::<_, String>(10)?.split_whitespace().map(str::to_string).collect(),
             })
         })
         .map_err(db_err)?
@@ -208,7 +212,7 @@ impl Store {
         let mut st = self
             .conn
             .prepare_cached(
-                "SELECT uid, from_name, from_addr, subject, ts, date, flags, size, has_att
+                "SELECT uid, from_name, from_addr, subject, ts, date, flags, size, has_att, msgid, refs
                  FROM envelopes WHERE account = ? AND mailbox = ? AND (flags & 9) = 0
                  ORDER BY ts DESC LIMIT ?",
             )
@@ -224,6 +228,8 @@ impl Store {
                 flags: Flags::from_bits(r.get::<_, i64>(6)? as u8),
                 size: r.get::<_, i64>(7)? as usize,
                 has_attachments: r.get(8)?,
+                message_id: r.get(9)?,
+                parents: r.get::<_, String>(10)?.split_whitespace().map(str::to_string).collect(),
             })
         })
         .map_err(db_err)?
@@ -239,8 +245,8 @@ impl Store {
             let insert = |tx: &rusqlite::Transaction, e: &Envelope| -> Result<()> {
                 tx.prepare_cached(
                     "INSERT OR REPLACE INTO envelopes
-                     (account, mailbox, uid, from_name, from_addr, subject, ts, date, flags, size, has_att)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (account, mailbox, uid, from_name, from_addr, subject, ts, date, flags, size, has_att, msgid, refs)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .and_then(|mut st| {
                     st.execute(params![
@@ -254,7 +260,9 @@ impl Store {
                         e.date,
                         e.flags.bits() as i64,
                         e.size as i64,
-                        e.has_attachments
+                        e.has_attachments,
+                        e.message_id,
+                        e.parents.join(" ")
                     ])
                 })
                 .map(|_| ())
@@ -345,14 +353,14 @@ impl Store {
             let mut st = tx
                 .prepare_cached(
                     "INSERT OR REPLACE INTO envelopes
-                     (account, mailbox, uid, from_name, from_addr, subject, ts, date, flags, size, has_att)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (account, mailbox, uid, from_name, from_addr, subject, ts, date, flags, size, has_att, msgid, refs)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .map_err(db_err)?;
             for e in envelopes {
                 st.execute(params![
                     account, mailbox, e.id.0 as i64, e.from_name, e.from_addr, e.subject, e.timestamp, e.date,
-                    e.flags.bits() as i64, e.size as i64, e.has_attachments
+                    e.flags.bits() as i64, e.size as i64, e.has_attachments, e.message_id, e.parents.join(" ")
                 ])
                 .map_err(db_err)?;
             }
@@ -480,6 +488,8 @@ mod tests {
             flags: Flags { seen, ..Default::default() },
             size: 10,
             has_attachments: false,
+            message_id: String::new(),
+            parents: Vec::new(),
         }
     }
 
@@ -548,6 +558,8 @@ mod partial {
             flags: Flags::default(),
             size: 1,
             has_attachments: false,
+            message_id: String::new(),
+            parents: Vec::new(),
         }
     }
 

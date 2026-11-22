@@ -70,6 +70,19 @@ pub enum Mode {
     Help,
 }
 
+/// A row of the message list.
+#[derive(Debug, Clone, Default)]
+pub struct RowInfo {
+    /// For the row that stands for a conversation of several messages: all
+    /// of them (indices into `envelopes`, newest first). Empty otherwise.
+    pub members: Vec<usize>,
+    /// One of the older messages of an expanded conversation.
+    pub child: bool,
+    /// The conversation's key (its oldest message).
+    pub key: MessageId,
+    pub expanded: bool,
+}
+
 pub struct Reader {
     pub id: MessageId,
     pub mailbox: MailboxKey,
@@ -118,6 +131,10 @@ pub struct App {
     pub envelopes: Vec<Envelope>,
     /// Indices into `envelopes`, sorted and filtered.
     pub visible: Vec<usize>,
+    /// What each row of `visible` is (a conversation, one of its messages…).
+    pub rows: Vec<RowInfo>,
+    /// Conversations shown expanded (by their oldest message).
+    pub expanded: std::collections::HashSet<MessageId>,
     pub list_state: TableState,
     pub list_page: u16,
     pub filter: String,
@@ -140,13 +157,16 @@ pub struct App {
     pub wide: bool,
     /// Debounce counter of the preview that follows the list selection.
     preview_seq: u64,
+    /// Group the list into conversations.
+    pub threads: bool,
     /// Address book for suggestions ([contacts] sources), loaded at startup.
     pub contacts: Vec<crate::contacts::Contact>,
 }
 
 impl App {
     pub fn new(cfg: Config, keymap: Keymap, picker: Option<Picker>, events: Sender<Event>, accounts: Vec<Account>) -> Self {
-        App {
+        let threads = cfg.ui.threads;
+        let mut app = App {
             cfg,
             gpg: None,
             keymap,
@@ -176,7 +196,12 @@ impl App {
             wide: false,
             preview_seq: 0,
             contacts: Vec::new(),
-        }
+            threads: true,
+            rows: Vec::new(),
+            expanded: Default::default(),
+        };
+        app.threads = threads;
+        app
     }
 
     pub fn mailbox(&self, key: &MailboxKey) -> Option<&MailboxInfo> {
@@ -685,11 +710,33 @@ impl App {
             })
             .collect();
         let envs = &self.envelopes;
-        match self.cfg.ui.sort {
-            SortOrder::DateDesc => v.sort_by(|&a, &b| envs[b].timestamp.cmp(&envs[a].timestamp).then(envs[b].id.cmp(&envs[a].id))),
-            SortOrder::DateAsc => v.sort_by(|&a, &b| envs[a].timestamp.cmp(&envs[b].timestamp).then(envs[a].id.cmp(&envs[b].id))),
+        let newer = |a: usize, b: usize| envs[b].timestamp.cmp(&envs[a].timestamp).then(envs[b].id.cmp(&envs[a].id));
+        let desc = self.cfg.ui.sort == SortOrder::DateDesc;
+        if self.threads {
+            // One row per conversation (its newest message), placed by that
+            // message's date; expanded ones list the older messages below.
+            let mut groups = crate::threads::group(envs, &v);
+            groups.sort_by(|a, b| if desc { newer(a[0], b[0]) } else { newer(b[0], a[0]) });
+            let (mut visible, mut rows) = (Vec::with_capacity(v.len()), Vec::with_capacity(v.len()));
+            for g in groups {
+                let key = envs[*g.last().expect("non-empty")].id;
+                let open = g.len() > 1 && self.expanded.contains(&key);
+                visible.push(g[0]);
+                rows.push(RowInfo { members: if g.len() > 1 { g.clone() } else { Vec::new() }, child: false, key, expanded: open });
+                if open {
+                    for &i in &g[1..] {
+                        visible.push(i);
+                        rows.push(RowInfo { members: Vec::new(), child: true, key, expanded: true });
+                    }
+                }
+            }
+            self.visible = visible;
+            self.rows = rows;
+        } else {
+            v.sort_by(|&a, &b| if desc { newer(a, b) } else { newer(b, a) });
+            self.rows = v.iter().map(|&i| RowInfo { members: Vec::new(), child: false, key: envs[i].id, expanded: false }).collect();
+            self.visible = v;
         }
-        self.visible = v;
         let sel = self.list_state.selected().unwrap_or(0);
         self.list_state.select(if self.visible.is_empty() { None } else { Some(sel.min(self.visible.len() - 1)) });
     }
@@ -1214,6 +1261,30 @@ impl App {
                 self.mode = Mode::Search(self.filter.clone());
             }
             Reload => self.reload(),
+            ToggleThread => {
+                let Some(row) = self.list_state.selected().and_then(|s| self.rows.get(s)).cloned() else { return };
+                if row.members.is_empty() && !row.child {
+                    self.status = "this message is not part of a conversation".into();
+                    return;
+                }
+                if !self.expanded.remove(&row.key) {
+                    self.expanded.insert(row.key);
+                }
+                self.refresh_visible();
+                // Stay on the conversation's row.
+                if let Some(pos) = self.rows.iter().position(|r| r.key == row.key && !r.child) {
+                    self.list_state.select(Some(pos));
+                }
+            }
+            Threads => {
+                let keep = self.selected_envelope().map(|i| self.envelopes[i].id);
+                self.threads = !self.threads;
+                self.refresh_visible();
+                if let Some(pos) = keep.and_then(|id| self.visible.iter().position(|&i| self.envelopes[i].id == id)) {
+                    self.list_state.select(Some(pos));
+                }
+                self.status = if self.threads { "grouped by conversation".into() } else { "one row per message".into() };
+            }
             SaveAttachments => {
                 if self.saveable_attachments().is_empty() {
                     self.status = if self.reader.is_some() { "this message has no attachments".into() } else { "open a message first".into() };

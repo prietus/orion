@@ -26,7 +26,7 @@ use stream::{tls_wrap, ImapStream};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const OP_TIMEOUT: Duration = Duration::from_secs(180);
 const BATCH: u32 = 500;
-const HEADER_QUERY: &str = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE CONTENT-TYPE)])";
+const HEADER_QUERY: &str = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE CONTENT-TYPE MESSAGE-ID IN-REPLY-TO REFERENCES)])";
 
 type ImapSession = Session<ImapStream>;
 

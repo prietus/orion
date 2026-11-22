@@ -1,6 +1,6 @@
 /// Opaque identifier of a message within a mailbox. Each backend decides what
 /// it means (index in mbox, UID in IMAP, id in JMAP...).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MessageId(pub u64);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -115,6 +115,10 @@ pub struct Envelope {
     pub flags: Flags,
     pub size: usize,
     pub has_attachments: bool,
+    /// `Message-ID` (without angle brackets), for grouping conversations.
+    pub message_id: String,
+    /// The messages it answers: `In-Reply-To` and `References`, oldest first.
+    pub parents: Vec<String>,
 }
 
 impl Envelope {

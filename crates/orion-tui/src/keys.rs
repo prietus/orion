@@ -46,6 +46,8 @@ actions! {
     MoveTo      => "move"         ["m"]                       "move to another folder",
     EmptyFolder => "empty_folder" ["X"]                       "empty the Trash or Spam folder (asks first)",
     SaveAttachments => "attachments" ["s"]                    "save or open the attachments",
+    ToggleThread => "toggle_thread" ["t"]                     "expand / collapse the conversation",
+    Threads     => "threads"      ["T"]                       "group the list into conversations (on/off)",
     ToggleRead  => "toggle_read"  ["N"]                       "mark read / unread",
     ToggleFlagged => "toggle_flag" ["F"]                      "flag / unflag as important",
     ToggleView  => "toggle_view"  ["v"]                       "toggle HTML / text",
