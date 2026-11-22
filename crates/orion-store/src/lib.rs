@@ -61,7 +61,13 @@ impl Store {
 
     fn migrate(conn: &Connection) -> Result<()> {
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(db_err)?;
-        if version != SCHEMA_VERSION {
+        // Check the tables too, not only the number: an older Orion still
+        // running (a daemon) may have rebuilt them its own way.
+        let has_ids: bool = conn
+            .query_row("SELECT count(*) FROM pragma_table_info('envelopes') WHERE name = 'msgid'", [], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .map_err(db_err)?;
+        if version != SCHEMA_VERSION || !has_ids {
             // It is a cache: if the schema differs it is rebuilt from scratch.
             conn.execute_batch(&format!(
                 "DROP TABLE IF EXISTS bodies;
@@ -540,6 +546,28 @@ mod tests {
         // Mailbox deleted on the server: it disappears along with its data.
         s.save_mailboxes("a", &[mb("INBOX")]).unwrap();
         assert_eq!(s.mailboxes("a").unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod schema {
+    use super::*;
+
+    #[test]
+    fn a_cache_rebuilt_by_an_older_orion_is_repaired() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.sqlite");
+        drop(Store::open(&path).unwrap());
+        // What an older version does: its own tables, with the new number left behind.
+        let c = Connection::open(&path).unwrap();
+        c.execute_batch(&format!(
+            "DROP TABLE envelopes; CREATE TABLE envelopes (account TEXT, mailbox TEXT, uid INTEGER, from_name TEXT, from_addr TEXT, subject TEXT,
+             ts INTEGER, date TEXT, flags INTEGER, size INTEGER, has_att INTEGER, PRIMARY KEY (account, mailbox, uid)); PRAGMA user_version = {SCHEMA_VERSION};"
+        ))
+        .unwrap();
+        drop(c);
+        let store = Store::open(&path).unwrap();
+        assert!(store.envelopes("a", "INBOX").unwrap().is_empty(), "the tables work again");
     }
 }
 

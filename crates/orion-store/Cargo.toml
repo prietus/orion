@@ -9,3 +9,6 @@ rust-version = "1.98"
 [dependencies]
 orion-core.workspace = true
 rusqlite = { version = "0.43", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
