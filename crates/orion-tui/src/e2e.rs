@@ -1016,4 +1016,44 @@ mod conversations {
         let envs = store.envelopes("fake", "INBOX").unwrap();
         assert!(envs.iter().any(|e| e.message_id == "p2@x.org" && e.parents == ["p1@x.org"]));
     }
+
+    #[test]
+    fn your_replies_from_sent_join_the_conversation() {
+        let Some(dv) = Dovecot::start() else {
+            eprintln!("dovecot not installed: test skipped");
+            return;
+        };
+        dv.create_folder("Sent");
+        let put = |folder: Option<&str>, name: &str, raw: &str| std::fs::write(dv.maildir(folder).join("new").join(name), raw).unwrap();
+        put(None, "1.a", "From: Luis <luis@x.org>\r\nSubject: Plan\r\nDate: Mon, 17 Nov 2025 10:00:00 +0000\r\nMessage-ID: <p1@x.org>\r\n\r\nfirst\r\n");
+        put(None, "2.b", "From: Bob <bob@x.org>\r\nSubject: Other\r\nDate: Mon, 17 Nov 2025 09:00:00 +0000\r\nMessage-ID: <o@x.org>\r\n\r\nother\r\n");
+        put(Some("Sent"), "3.c", "From: Me <ana@x.org>\r\nSubject: Re: Plan\r\nDate: Tue, 18 Nov 2025 10:00:00 +0000\r\nMessage-ID: <r1@x.org>\r\nIn-Reply-To: <p1@x.org>\r\nReferences: <p1@x.org>\r\n\r\nmy answer\r\n");
+        put(Some("Sent"), "4.d", "From: Me <ana@x.org>\r\nSubject: Unrelated\r\nDate: Tue, 18 Nov 2025 11:00:00 +0000\r\nMessage-ID: <u1@x.org>\r\n\r\nnot here\r\n");
+        let dir = tempfile::tempdir().unwrap();
+        let mut ui = Ui::with_imap(dv.imap_config(PASSWORD), &dir.path().join("cache.sqlite"));
+        ui.until("inbox and your sent mail", |a| a.native == 2 && a.envelopes.len() == 4 && !a.loading);
+        // Two rows: the conversation (Luis + your reply) and Bob; "Unrelated" stays out.
+        assert_eq!(ui.app.visible.len(), 2);
+        let subjects: Vec<&str> = ui.app.visible.iter().map(|&i| ui.app.envelopes[i].subject.as_str()).collect();
+        assert!(subjects.contains(&"Re: Plan") && !subjects.contains(&"Unrelated"), "{subjects:?}");
+        let conv = ui.app.rows.iter().position(|r| r.members.len() == 2).unwrap();
+        assert!(ui.app.is_sent(ui.app.visible[conv]), "the newest is your reply");
+        assert_eq!(ui.app.current_mailbox().unwrap().total, 2, "your sent mail does not count in the inbox");
+        // Opening it reads it from Sent.
+        ui.app.list_state.select(Some(conv));
+        ui.key(KeyCode::Enter);
+        ui.until("your reply opened", |a| a.reader.as_ref().is_some_and(|r| r.view.is_some()));
+        let r = ui.app.reader.as_ref().unwrap();
+        assert_eq!(r.mailbox.1, "Sent");
+        assert!(r.view.as_ref().unwrap().text.contains("my answer"));
+        // Deleting it acts on Sent (no Trash here: for good).
+        ui.key(KeyCode::Char('D'));
+        ui.key(KeyCode::Char('y'));
+        ui.until("deleted", |a| a.status == "deleted for good");
+        let mut b = orion_backends::imap::ImapBackend::new(dv.imap_config(PASSWORD)).unwrap();
+        use orion_core::Backend;
+        let sent: Vec<String> = b.envelopes("Sent").unwrap().into_iter().map(|e| e.subject).collect();
+        assert_eq!(sent, ["Unrelated"]);
+        assert_eq!(b.envelopes("INBOX").unwrap().len(), 2, "the inbox is untouched");
+    }
 }

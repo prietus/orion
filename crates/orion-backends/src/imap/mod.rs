@@ -608,9 +608,13 @@ impl Backend for ImapBackend {
         })
     }
 
+    fn find_sent_mailbox(&mut self) -> Result<Option<String>> {
+        const USUAL: [&str; 8] = ["Sent", "Sent Items", "Sent Messages", "Sent Mail", "INBOX.Sent", "INBOX/Sent", "Enviados", "Elementos enviados"];
+        self.special_mailbox(|a| matches!(a, NameAttribute::Sent), &USUAL)
+    }
+
     fn sent_mailbox(&mut self) -> Result<Option<String>> {
-        const USUAL: [&str; 7] = ["Sent", "Sent Items", "Sent Messages", "Sent Mail", "INBOX.Sent", "INBOX/Sent", "Enviados"];
-        if let Some(name) = self.special_mailbox(|a| matches!(a, NameAttribute::Sent), &USUAL)? {
+        if let Some(name) = self.find_sent_mailbox()? {
             return Ok(Some(name));
         }
         with_session!(self, None, |s| async {

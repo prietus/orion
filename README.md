@@ -126,7 +126,10 @@ yourself; answering an encrypted message starts with encryption on.
 - **Conversations**: the list groups messages that answer each other
   (`Message-ID`, `In-Reply-To`, `References`) into one row: who took part, how
   many messages (`▸3`), the newest date, and unread/flag/attachment marks if
-  any message has them. `t` expands a conversation (its older messages below,
+  any message has them. Your own replies, from the account's Sent folder,
+  appear inside the conversations they belong to (marked "me"; opening,
+  deleting or moving them acts on Sent); sent mail that answers nothing in
+  the open folder stays out. `t` expands a conversation (its older messages below,
   as a tree) or collapses it; `T` switches grouping off and on
   (`[ui] threads = false` starts without it).
 - **Three panes** when the window is wide (`[ui] layout = "auto"`, or

@@ -180,9 +180,9 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
     let account = app.current.as_ref().and_then(|k| app.accounts.get(k.0)).map(|a| a.name.clone()).unwrap_or_default();
     let title = match app.current_mailbox() {
         Some(mb) if !app.filter.is_empty() => {
-            format!(" {account} · {} — {}/{} — filter: {}{syncing} ", mb.name, app.visible.len(), app.envelopes.len(), app.filter)
+            format!(" {account} · {} — {}/{} — filter: {}{syncing} ", mb.name, app.visible.len(), app.native, app.filter)
         }
-        Some(mb) => format!(" {account} · {} · {}{syncing} ", mb.name, app.envelopes.len()),
+        Some(mb) => format!(" {account} · {} · {}{syncing} ", mb.name, app.native),
         None => " No mailbox ".into(),
     };
     let focused = app.focus == Focus::List;
@@ -245,6 +245,9 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
                 let n = members.len();
                 let chevron = if info.expanded { "▾" } else { "▸" };
                 who.push(Span::styled(format!(" {chevron}{n}"), Style::new().fg(th.accent2).bold()));
+            } else if app.is_sent(i) {
+                who.push(Span::styled(format!("{} ", Icon::Sent.glyph()), Style::new().fg(th.info)));
+                who.push(Span::styled("me", Style::new().fg(th.info)));
             } else {
                 who.push(Span::styled(e.sender().to_string(), sender_style));
             }
@@ -1336,6 +1339,10 @@ mod shots {
         app.list_state.select(Some(1));
         app.focus = Focus::List;
         dump(&mut app, 150, 40, &dir.join("list.json"));
+        // Your reply, from Sent, joins the conversation.
+        let mine = Envelope { message_id: "cena-4".into(), parents: vec!["cena-1".into(), "cena-2".into()], ..env(1, "Me", "me@example.com", "Re: Cena del sábado", 4 * h, true, false, false, false) };
+        app.on_event(Event::Related { account: 0, mailbox: "Sent".into(), envelopes: vec![mine] });
+        app.list_state.select(Some(1));
         app.on_key(crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char('t'), crossterm::event::KeyModifiers::NONE));
         dump(&mut app, 150, 40, &dir.join("thread.json"));
         app.on_key(crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char('t'), crossterm::event::KeyModifiers::NONE));

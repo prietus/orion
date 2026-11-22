@@ -315,6 +315,12 @@ impl Backend for JmapBackend {
         res.body_mut().with_config().limit(MAX_MESSAGE).read_to_vec().map_err(net)
     }
 
+    fn find_sent_mailbox(&mut self) -> Result<Option<String>> {
+        let account = self.account()?;
+        let r = self.call(vec![("Mailbox/get", json!({ "accountId": account, "ids": null, "properties": ["id", "role"] }))])?;
+        Ok(r[0]["list"].as_array().and_then(|l| l.iter().find(|m| m["role"] == "sent")).and_then(|m| m["id"].as_str()).map(str::to_string))
+    }
+
     fn trash_mailbox(&mut self) -> Result<Option<String>> {
         let account = self.account()?;
         let r = self.call(vec![("Mailbox/get", json!({ "accountId": account, "ids": null, "properties": ["id", "role"] }))])?;

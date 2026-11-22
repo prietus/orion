@@ -1,6 +1,7 @@
 //! Application state. It does no I/O: it talks to the account threads through
 //! channels and reacts to their events.
 
+use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -84,7 +85,11 @@ pub struct RowInfo {
 }
 
 pub struct Reader {
+    /// The message's id in the list.
     pub id: MessageId,
+    /// Its id where it really is (`mailbox`): differs for sent mail shown
+    /// inside a conversation.
+    pub remote_id: MessageId,
     pub mailbox: MailboxKey,
     /// `None` while downloading.
     pub view: Option<MessageView>,
@@ -135,6 +140,13 @@ pub struct App {
     pub rows: Vec<RowInfo>,
     /// Conversations shown expanded (by their oldest message).
     pub expanded: std::collections::HashSet<MessageId>,
+    /// How many of `envelopes` belong to the open mailbox; the rest are your
+    /// sent messages, shown inside its conversations.
+    pub native: usize,
+    /// The account's sent mail, as last received (mailbox, messages).
+    related: Option<(MailboxKey, Vec<Envelope>)>,
+    /// List id of a sent message → where it really is (mailbox, id there).
+    foreign: HashMap<MessageId, (MailboxKey, MessageId)>,
     pub list_state: TableState,
     pub list_page: u16,
     pub filter: String,
@@ -199,6 +211,9 @@ impl App {
             threads: true,
             rows: Vec::new(),
             expanded: Default::default(),
+            native: 0,
+            related: None,
+            foreign: HashMap::new(),
         };
         app.threads = threads;
         app
@@ -284,6 +299,13 @@ impl App {
             Event::Contacts(list) => self.contacts = list,
             Event::PreviewRead { id } => self.on_preview_read(id),
             Event::Removed { account, mailbox, result } => self.on_removed(account, mailbox, result),
+            Event::Related { account, mailbox, envelopes } => {
+                self.related = Some(((account, mailbox), envelopes));
+                if self.current.as_ref().is_some_and(|c| c.0 == account) {
+                    let natives = self.envelopes[..self.native].to_vec();
+                    self.set_envelopes(natives);
+                }
+            }
             Event::Emptied { account, mailbox, result } => {
                 self.status = match result {
                     Ok(()) => "folder emptied".into(),
@@ -308,7 +330,7 @@ impl App {
                 };
                 // Open the message again: the signature can now be verified.
                 if let Some(r) = &self.reader {
-                    let (account, mailbox, id) = (r.mailbox.0, r.mailbox.1.clone(), r.id);
+                    let (account, mailbox, id) = (r.mailbox.0, r.mailbox.1.clone(), r.remote_id);
                     self.request(account, Request::Fetch { mailbox, id });
                 }
             }
@@ -388,7 +410,20 @@ impl App {
 
     fn set_envelopes(&mut self, envelopes: Vec<Envelope>) {
         let keep = self.selected_envelope().map(|i| self.envelopes[i].id);
+        self.native = envelopes.len();
         self.envelopes = envelopes;
+        // Your sent mail joins (only to complete conversations; see refresh_visible).
+        self.foreign.clear();
+        if let (Some(cur), Some((key, sent))) = (&self.current, &self.related)
+            && key.0 == cur.0
+            && key.1 != cur.1
+        {
+            for (n, e) in sent.iter().enumerate() {
+                let list_id = MessageId(u64::MAX - n as u64);
+                self.foreign.insert(list_id, (key.clone(), e.id));
+                self.envelopes.push(Envelope { id: list_id, from_name: "me".into(), ..e.clone() });
+            }
+        }
         self.refresh_visible();
         let pos = keep.and_then(|id| self.visible.iter().position(|&i| self.envelopes[i].id == id));
         self.list_state.select(match pos {
@@ -404,8 +439,8 @@ impl App {
         if self.loading {
             return;
         }
-        let unread = self.envelopes.iter().filter(|e| !e.flags.seen).count();
-        let total = self.envelopes.len();
+        let unread = self.envelopes[..self.native].iter().filter(|e| !e.flags.seen).count();
+        let total = self.native;
         if let Some(mb) = self.accounts.get_mut(a).and_then(|acc| acc.mailboxes.iter_mut().find(|m| m.id == id)) {
             mb.unread = unread;
             mb.total = total;
@@ -416,7 +451,7 @@ impl App {
         let auto = self.cfg.ui.auto_show_images && self.picker.is_some();
         let prefer_html = self.cfg.ui.prefer_html;
         let Some(r) = &mut self.reader else { return };
-        if r.id != id || r.mailbox != (account, mailbox) {
+        if r.remote_id != id || r.mailbox != (account, mailbox) {
             return;
         }
         match result {
@@ -472,7 +507,7 @@ impl App {
         r.unlocking = true;
         r.view = None;
         r.body = None;
-        let (account, mailbox, id) = (r.mailbox.0, r.mailbox.1.clone(), r.id);
+        let (account, mailbox, id) = (r.mailbox.0, r.mailbox.1.clone(), r.remote_id);
         self.request(account, Request::Unlock { mailbox, id, pin });
     }
 
@@ -601,6 +636,7 @@ impl App {
         if self.current.as_ref() != Some(&key) {
             self.current = Some(key.clone());
             self.envelopes.clear();
+            self.native = 0;
             self.visible.clear();
             self.list_state.select(None);
             self.filter.clear();
@@ -645,7 +681,12 @@ impl App {
     fn remove_message(&mut self, id: MessageId, key: MailboxKey, how: crate::worker::Removal) {
         if self.current.as_ref() == Some(&key) {
             let pos = self.list_state.selected();
-            self.envelopes.retain(|e| e.id != id);
+            if let Some(i) = self.envelope_index(id) {
+                self.envelopes.remove(i);
+                if i < self.native {
+                    self.native -= 1;
+                }
+            }
             self.refresh_visible();
             self.list_state.select(if self.visible.is_empty() { None } else { Some(pos.unwrap_or(0).min(self.visible.len() - 1)) });
             self.update_current_counts();
@@ -672,7 +713,8 @@ impl App {
             crate::worker::Removal::Forever => "deleting…".into(),
             crate::worker::Removal::MoveTo(_) => "moving…".into(),
         };
-        self.request(key.0, Request::Remove { mailbox: key.1, ids: vec![id], how });
+        let (key, remote) = self.locate(&key, id);
+        self.request(key.0, Request::Remove { mailbox: key.1, ids: vec![remote], how });
     }
 
     fn on_removed(&mut self, account: usize, mailbox: String, result: Result<Option<String>, String>) {
@@ -699,7 +741,8 @@ impl App {
 
     fn refresh_visible(&mut self) {
         let needle = self.filter.to_lowercase();
-        let mut v: Vec<usize> = (0..self.envelopes.len())
+        // Only the open mailbox's own messages are listed (and searched).
+        let mut v: Vec<usize> = (0..self.native)
             .filter(|&i| {
                 needle.is_empty() || {
                     let e = &self.envelopes[i];
@@ -715,7 +758,11 @@ impl App {
         if self.threads {
             // One row per conversation (its newest message), placed by that
             // message's date; expanded ones list the older messages below.
-            let mut groups = crate::threads::group(envs, &v);
+            // Your sent mail is grouped too, but a conversation is only shown
+            // if it has a message of this mailbox.
+            let with_sent: Vec<usize> = v.iter().copied().chain(self.native..envs.len()).collect();
+            let native = self.native;
+            let mut groups: Vec<Vec<usize>> = crate::threads::group(envs, &with_sent).into_iter().filter(|g| g.iter().any(|&i| i < native)).collect();
             groups.sort_by(|a, b| if desc { newer(a[0], b[0]) } else { newer(b[0], a[0]) });
             let (mut visible, mut rows) = (Vec::with_capacity(v.len()), Vec::with_capacity(v.len()));
             for g in groups {
@@ -767,11 +814,22 @@ impl App {
     }
 
     fn on_preview_read(&mut self, id: MessageId) {
-        let Some(key) = self.reader.as_ref().filter(|r| r.id == id).map(|r| r.mailbox.clone()) else { return };
+        let Some((key, remote)) = self.reader.as_ref().filter(|r| r.id == id).map(|r| (r.mailbox.clone(), r.remote_id)) else { return };
         if self.envelope_index(id).is_some_and(|i| !self.envelopes[i].flags.seen) {
             self.apply_flag_locally(id, Flag::Seen, true);
-            self.request(key.0, Request::SetFlag { mailbox: key.1, ids: vec![id], flag: Flag::Seen, on: true, quiet: true });
+            self.request(key.0, Request::SetFlag { mailbox: key.1, ids: vec![remote], flag: Flag::Seen, on: true, quiet: true });
         }
+    }
+
+    /// Whether a row of the list is one of your sent messages.
+    pub fn is_sent(&self, index: usize) -> bool {
+        index >= self.native
+    }
+
+    /// Where a listed message really is: the open mailbox, or Sent for your
+    /// replies shown in its conversations.
+    fn locate(&self, key: &MailboxKey, id: MessageId) -> (MailboxKey, MessageId) {
+        self.foreign.get(&id).cloned().unwrap_or_else(|| (key.clone(), id))
     }
 
     fn open_message(&mut self, env_idx: usize) {
@@ -782,13 +840,15 @@ impl App {
     /// read at once; a preview keeps the focus on the list and marks it read
     /// after `mark_read_after` seconds on screen.
     fn show_message(&mut self, env_idx: usize, focus: bool) {
-        let Some(key) = self.current.clone() else { return };
+        let Some(current) = self.current.clone() else { return };
         let id = self.envelopes[env_idx].id;
+        let (key, remote_id) = self.locate(&current, id);
         if self.reader.as_ref().is_some_and(|r| r.show_images) {
             self.needs_clear = true;
         }
         self.reader = Some(Reader {
             id,
+            remote_id,
             mailbox: key.clone(),
             view: None,
             body: None,
@@ -808,14 +868,14 @@ impl App {
         if focus {
             self.focus = Focus::Reader;
         }
-        self.request(key.0, Request::Fetch { mailbox: key.1.clone(), id });
+        self.request(key.0, Request::Fetch { mailbox: key.1.clone(), id: remote_id });
         if self.envelopes[env_idx].flags.seen {
             return;
         }
         let delay = self.cfg.ui.mark_read_after;
         if focus || delay == 0 {
             self.apply_flag_locally(id, Flag::Seen, true);
-            self.request(key.0, Request::SetFlag { mailbox: key.1, ids: vec![id], flag: Flag::Seen, on: true, quiet: true });
+            self.request(key.0, Request::SetFlag { mailbox: key.1, ids: vec![remote_id], flag: Flag::Seen, on: true, quiet: true });
         } else {
             let tx = self.events.clone();
             std::thread::spawn(move || {
@@ -845,7 +905,8 @@ impl App {
         let Some(i) = self.envelope_index(id) else { return };
         let on = !self.envelopes[i].flags.get(flag);
         self.apply_flag_locally(id, flag, on);
-        self.request(key.0, Request::SetFlag { mailbox: key.1, ids: vec![id], flag, on, quiet: false });
+        let (key, remote) = self.locate(&key, id);
+        self.request(key.0, Request::SetFlag { mailbox: key.1, ids: vec![remote], flag, on, quiet: false });
     }
 
     fn load_image(&mut self) {
@@ -1175,6 +1236,7 @@ impl App {
                 if matches!(ev.code, KeyCode::Char('y') | KeyCode::Char('Y')) {
                     if self.current.as_ref() == Some(&key) {
                         self.envelopes.clear();
+                        self.native = 0;
                         self.refresh_visible();
                         self.list_state.select(None);
                         self.update_current_counts();

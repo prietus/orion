@@ -55,6 +55,8 @@ pub enum Event {
     PreviewRead { id: MessageId },
     /// Browser rendering of a message (PNG, pixel size).
     Snapshot { id: MessageId, result: Result<(Vec<u8>, (u32, u32)), String> },
+    /// Your sent mail (`mailbox`), to place your replies in conversations.
+    Related { account: usize, mailbox: String, envelopes: Vec<Envelope> },
     /// Result of emptying a mailbox.
     Emptied { account: usize, mailbox: String, result: Result<(), String> },
     /// Result of deleting/moving messages: `Ok(destination)` (`None` = gone
@@ -219,6 +221,8 @@ struct Worker {
     mailboxes: Vec<MailboxInfo>,
     /// Message ids seen per mailbox, to detect new mail.
     known: HashMap<String, HashSet<MessageId>>,
+    /// The sent-mail mailbox, once looked up (`Some(None)`: there is none).
+    sent: Option<Option<String>>,
 }
 
 /// Resolves `watch` patterns against a mailbox list: empty = the first
@@ -276,6 +280,7 @@ impl Worker {
             account: account.clone(),
             mailboxes: Vec::new(),
             known: HashMap::new(),
+            sent: None,
         })
     }
 
@@ -466,6 +471,10 @@ impl Worker {
             if let Err(e) = copy {
                 return Ok(Some(format!("sent, but the copy could not be saved in Sent: {e}")));
             }
+            // The reply joins its conversation in the open mailbox.
+            if let Some(cur) = self.current.clone() {
+                self.related_sent(&cur);
+            }
         }
         Ok(None)
     }
@@ -501,6 +510,30 @@ impl Worker {
             }
         }
         self.sync(mailbox, false);
+        self.related_sent(mailbox);
+    }
+
+    /// Your sent mail, so the UI can show your replies inside the
+    /// conversations of `mailbox`: first what is cached, then synced.
+    fn related_sent(&mut self, mailbox: &str) {
+        if !self.backend.cacheable() {
+            return;
+        }
+        if self.sent.is_none() {
+            self.sent = Some(self.backend.find_sent_mailbox().ok().flatten());
+        }
+        let Some(Some(sent)) = self.sent.clone() else { return };
+        if sent == mailbox {
+            return;
+        }
+        let cached = |w: &Self| w.store.as_ref().and_then(|s| s.envelopes(&w.name, &sent).ok());
+        if let Some(envelopes) = cached(self) {
+            self.send(Event::Related { account: self.index, mailbox: sent.clone(), envelopes });
+        }
+        self.sync(&sent, false);
+        if let Some(envelopes) = cached(self) {
+            self.send(Event::Related { account: self.index, mailbox: sent.clone(), envelopes });
+        }
     }
 
     /// Syncs a mailbox and sends the resulting list. If a delta turns out

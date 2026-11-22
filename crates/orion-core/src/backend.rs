@@ -43,6 +43,12 @@ pub trait Backend: Send {
         Ok(None)
     }
 
+    /// The account's sent-mail mailbox, if it has one (never created; for
+    /// showing your replies in conversations).
+    fn find_sent_mailbox(&mut self) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// The account's trash mailbox, if it has one (never created).
     fn trash_mailbox(&mut self) -> Result<Option<String>> {
         Ok(None)
