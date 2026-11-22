@@ -670,6 +670,15 @@ impl Backend for ImapBackend {
         })
     }
 
+    /// Everything marked `\\Deleted`, then expunged: the folder is meant to end empty.
+    fn empty_mailbox(&mut self, mailbox: &str) -> Result<()> {
+        with_session!(self, Some(mailbox), |s| async {
+            let _: Vec<Fetch> = s.uid_store("1:*", "+FLAGS.SILENT (\\Deleted)").await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+            let _: Vec<_> = s.expunge().await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+            Ok(())
+        })
+    }
+
     fn append(&mut self, mailbox: &str, raw: &[u8], seen: bool) -> Result<()> {
         let (mb, data) = (mailbox.to_string(), raw.to_vec());
         with_session!(self, None, |s| async { s.append(&mb, seen.then_some("(\\Seen)"), None, &data).await.map_err(imap_err) })

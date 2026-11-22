@@ -44,6 +44,7 @@ actions! {
     Delete      => "delete"       ["d", "delete"]             "move to the Trash",
     DeleteForever => "delete_forever" ["D"]                   "delete for good (asks first)",
     MoveTo      => "move"         ["m"]                       "move to another folder",
+    EmptyFolder => "empty_folder" ["X"]                       "empty the Trash or Spam folder (asks first)",
     SaveAttachments => "attachments" ["s"]                    "save or open the attachments",
     ToggleRead  => "toggle_read"  ["N"]                       "mark read / unread",
     ToggleFlagged => "toggle_flag" ["F"]                      "flag / unflag as important",

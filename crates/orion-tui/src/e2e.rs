@@ -951,5 +951,29 @@ mod removal {
         // The cache forgot them too (a restart shows the same list).
         let store = orion_store::Store::open(&dir.path().join("cache.sqlite")).unwrap();
         assert_eq!(store.envelopes("fake", "INBOX").unwrap().len(), 1);
+        drop(store);
+
+        // X only empties the Trash or Spam.
+        ui.key(KeyCode::Char('X'));
+        assert!(matches!(ui.app.mode, Mode::Normal));
+        assert_eq!(ui.app.status, "only the Trash and Spam folders can be emptied");
+
+        // In the Trash, d asks to delete for good; X empties it.
+        dv.deliver(Some("Trash"), "Old one", "body");
+        let trash = ui.app.sidebar.iter().position(|k| k.1 == "Trash").expect("Trash in the sidebar");
+        ui.app.sidebar_sel = trash;
+        ui.app.focus = crate::app::Focus::Sidebar;
+        ui.key(KeyCode::Enter);
+        ui.until("trash listed", |a| a.current.as_ref().is_some_and(|k| k.1 == "Trash") && a.envelopes.len() == 2 && !a.loading);
+        ui.key(KeyCode::Char('d'));
+        assert!(matches!(ui.app.mode, Mode::ConfirmDelete { .. }), "d in the Trash asks first");
+        ui.key(KeyCode::Esc);
+        ui.key(KeyCode::Char('X'));
+        assert!(matches!(&ui.app.mode, Mode::ConfirmEmpty { prompt, .. } if prompt.contains("all 2 message")), "{:?}", ui.app.status);
+        ui.key(KeyCode::Char('y'));
+        assert!(ui.app.envelopes.is_empty());
+        ui.until("emptied", |a| a.status == "folder emptied");
+        assert!(subjects(&mut b, "Trash").is_empty(), "empty on the server");
+        assert_eq!(subjects(&mut b, "INBOX"), ["Delta"], "nothing else touched");
     }
 }

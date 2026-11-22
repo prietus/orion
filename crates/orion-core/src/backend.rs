@@ -58,6 +58,11 @@ pub trait Backend: Send {
         Err(Error::Unsupported("this account cannot delete messages"))
     }
 
+    /// Deletes every message of a mailbox for good (emptying the Trash).
+    fn empty_mailbox(&mut self, _mailbox: &str) -> Result<()> {
+        Err(Error::Unsupported("this account cannot empty folders"))
+    }
+
     /// Stores a message in a mailbox (IMAP APPEND).
     fn append(&mut self, _mailbox: &str, _raw: &[u8], _seen: bool) -> Result<()> {
         Err(Error::Unsupported("this account cannot store messages"))

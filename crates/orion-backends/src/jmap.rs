@@ -336,6 +336,18 @@ impl Backend for JmapBackend {
         Ok(())
     }
 
+    fn empty_mailbox(&mut self, mailbox: &str) -> Result<()> {
+        let account = self.account()?;
+        let all = self.query_ids(mailbox)?;
+        for chunk in all.chunks(500) {
+            let r = self.call(vec![("Email/set", json!({ "accountId": account, "destroy": chunk }))])?;
+            if let Some(failed) = r[0]["notDestroyed"].as_object().filter(|m| !m.is_empty()) {
+                return Err(Error::Protocol(format!("JMAP did not delete {} message(s)", failed.len())));
+            }
+        }
+        Ok(())
+    }
+
     fn delete_messages(&mut self, mailbox: &str, ids: &[MessageId]) -> Result<()> {
         let account = self.account()?;
         let jids = ids.iter().map(|id| self.jmap_id(mailbox, *id)).collect::<Result<Vec<_>>>()?;

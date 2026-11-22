@@ -621,6 +621,10 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             Span::raw("█"),
             Span::raw("  (enter confirms, esc cancels)").fg(t().overlay),
         ]),
+        Mode::ConfirmEmpty { prompt, .. } => Line::from(vec![
+            Span::styled(format!(" 🗑 {prompt} "), Style::new().fg(t().error).bold()),
+            Span::raw(" (y empties it, any other key cancels)").fg(t().overlay),
+        ]),
         Mode::ConfirmDelete { prompt, .. } => Line::from(vec![
             Span::styled(format!(" 🗑 {prompt} "), Style::new().fg(t().error).bold()),
             Span::raw(" (y deletes, any other key cancels)").fg(t().overlay),

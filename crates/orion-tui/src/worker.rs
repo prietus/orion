@@ -39,6 +39,8 @@ pub enum Request {
     SetFlag { mailbox: String, ids: Vec<MessageId>, flag: Flag, on: bool, quiet: bool },
     /// Re-read the mailbox counters from the cache (no network).
     Recount,
+    /// Deletes every message of a mailbox for good.
+    Empty { mailbox: String },
     /// Deletes or moves messages (see `Removal`).
     Remove { mailbox: String, ids: Vec<MessageId>, how: Removal },
 }
@@ -53,6 +55,8 @@ pub enum Event {
     PreviewRead { id: MessageId },
     /// Browser rendering of a message (PNG, pixel size).
     Snapshot { id: MessageId, result: Result<(Vec<u8>, (u32, u32)), String> },
+    /// Result of emptying a mailbox.
+    Emptied { account: usize, mailbox: String, result: Result<(), String> },
     /// Result of deleting/moving messages: `Ok(destination)` (`None` = gone
     /// for good) or the error (the list is reloaded to bring them back).
     Removed { account: usize, mailbox: String, result: Result<Option<String>, String> },
@@ -334,6 +338,7 @@ impl Worker {
                     Request::Unlock { mailbox, id, pin } => self.fetch(&mailbox, id, pin.as_deref().map(String::as_str)),
                     Request::SetFlag { mailbox, ids, flag, on, quiet } => self.set_flag(&mailbox, ids, flag, on, quiet),
                     Request::Remove { mailbox, ids, how } => self.remove(&mailbox, ids, how),
+                    Request::Empty { mailbox } => self.empty(&mailbox),
                     Request::Recount => {
                         if let Some(list) = self.store.as_ref().and_then(|s| s.mailboxes(&self.name).ok()) {
                             self.send(Event::Mailboxes { account: self.index, list });
@@ -603,6 +608,22 @@ impl Worker {
             view.map(Box::new).ok_or_else(|| "could not parse the message".to_string())
         });
         self.send(Event::Message { account: self.index, mailbox: mailbox.into(), id, result });
+    }
+
+    fn empty(&mut self, mailbox: &str) {
+        let result = self.backend.empty_mailbox(mailbox).map_err(|e| e.to_string());
+        if result.is_ok()
+            && let Some(store) = &mut self.store
+        {
+            match store.clear_mailbox(&self.name, mailbox).and_then(|_| store.mailboxes(&self.name)) {
+                Ok(list) => {
+                    self.send(Event::Mailboxes { account: self.index, list });
+                    crate::client::notify_daemon();
+                }
+                Err(e) => self.error(e),
+            }
+        }
+        self.send(Event::Emptied { account: self.index, mailbox: mailbox.into(), result });
     }
 
     fn remove(&mut self, mailbox: &str, ids: Vec<MessageId>, how: Removal) {

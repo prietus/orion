@@ -376,6 +376,16 @@ impl Store {
             .map_err(db_err)
     }
 
+    /// Forgets every message of a mailbox (it was emptied on the server).
+    pub fn clear_mailbox(&mut self, account: &str, mailbox: &str) -> Result<()> {
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(db_err)?;
+        for table in ["envelopes", "bodies"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE account = ? AND mailbox = ?"), params![account, mailbox]).map_err(db_err)?;
+        }
+        tx.execute("UPDATE mailboxes SET total = 0, unread = 0 WHERE account = ? AND id = ?", params![account, mailbox]).map_err(db_err)?;
+        tx.commit().map_err(db_err)
+    }
+
     /// Forgets messages that were deleted or moved away on the server.
     pub fn remove(&mut self, account: &str, mailbox: &str, ids: &[MessageId]) -> Result<()> {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(db_err)?;

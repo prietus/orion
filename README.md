@@ -134,8 +134,9 @@ yourself; answering an encrypted message starts with encryption on.
   from the message are sanitised (no paths, no hidden files) and existing
   files are never overwritten ("name (1).pdf").
 - **Delete and move**: `d` moves the message to the account's Trash (IMAP
-  special-use `\Trash` or the usual names, JMAP role `trash`; refused if there
-  is none or it is already there), `D` deletes for good after asking, `m`
+  special-use `\Trash` or the usual names, JMAP role `trash`; inside the Trash
+  or Spam it asks to delete for good instead), `D` deletes for good after
+  asking, `X` empties the Trash or Spam folder (after asking), `m`
   moves it to another folder (type to filter). IMAP uses `UID MOVE` when the
   server has it, else copy + `\Deleted` + `UID EXPUNGE` (only those messages);
   POP3 can only delete (`DELE`, on the server). The message leaves the list at

@@ -63,6 +63,8 @@ pub enum Mode {
     ConfirmDelete { prompt: String, id: MessageId, key: MailboxKey },
     /// List of the open message's attachments (save / open).
     Attachments { sel: usize },
+    /// "Empty this folder?" waiting for y/n.
+    ConfirmEmpty { prompt: String, key: MailboxKey },
     /// Choosing the folder to move a message to: filter and selection.
     MoveTo { id: MessageId, key: MailboxKey, filter: String, sel: usize },
     Help,
@@ -257,6 +259,17 @@ impl App {
             Event::Contacts(list) => self.contacts = list,
             Event::PreviewRead { id } => self.on_preview_read(id),
             Event::Removed { account, mailbox, result } => self.on_removed(account, mailbox, result),
+            Event::Emptied { account, mailbox, result } => {
+                self.status = match result {
+                    Ok(()) => "folder emptied".into(),
+                    Err(e) => {
+                        if self.current.as_ref() == Some(&(account, mailbox)) {
+                            self.reload();
+                        }
+                        format!("error: {e}")
+                    }
+                };
+            }
             Event::RemoteImages { account, mailbox, id, images, failed } => self.on_remote_images(account, mailbox, id, images, failed),
             Event::OtpIgnored => {
                 self.status = "ignored a YubiKey OTP (touching it types a code); \
@@ -571,6 +584,18 @@ impl App {
         self.loading = true;
         self.sync_error = None;
         self.request(key.0, Request::Open { mailbox: key.1 });
+    }
+
+    fn ask_delete_forever(&mut self, id: MessageId, key: MailboxKey) {
+        let subject = self.envelope_index(id).map(|i| self.envelopes[i].subject.clone()).unwrap_or_default();
+        let subject: String = if subject.chars().count() > 50 { subject.chars().take(49).chain(['…']).collect() } else { subject };
+        self.mode = Mode::ConfirmDelete { prompt: format!("delete “{subject}” for good? It cannot be undone"), id, key };
+    }
+
+    /// Trash or Spam (by name or role): where deleting means for good.
+    pub fn is_disposal_folder(&self, key: &MailboxKey) -> bool {
+        let name = self.mailbox(key).map(|m| m.name.clone()).unwrap_or_default();
+        matches!(crate::theme::Icon::for_mailbox(&key.1, &name), crate::theme::Icon::Trash | crate::theme::Icon::Junk)
     }
 
     /// Folders a message can be moved to: the account's other mailboxes,
@@ -1097,6 +1122,26 @@ impl App {
                 }
                 return;
             }
+            Mode::ConfirmEmpty { key, .. } => {
+                let key = key.clone();
+                self.mode = Mode::Normal;
+                if matches!(ev.code, KeyCode::Char('y') | KeyCode::Char('Y')) {
+                    if self.current.as_ref() == Some(&key) {
+                        self.envelopes.clear();
+                        self.refresh_visible();
+                        self.list_state.select(None);
+                        self.update_current_counts();
+                        if self.reader.as_ref().is_some_and(|r| r.mailbox == key) {
+                            self.close_reader();
+                        }
+                    }
+                    self.status = "emptying…".into();
+                    self.request(key.0, Request::Empty { mailbox: key.1 });
+                } else {
+                    self.status = "not emptied".into();
+                }
+                return;
+            }
             Mode::ConfirmDelete { id, key, .. } => {
                 let (id, key) = (*id, key.clone());
                 self.mode = Mode::Normal;
@@ -1178,14 +1223,26 @@ impl App {
             }
             Delete => {
                 if let (Some(id), Some(key)) = (self.target_message(), self.current.clone()) {
-                    self.remove_message(id, key, crate::worker::Removal::Trash);
+                    // In the Trash (or Spam) there is nowhere else to go: ask to delete for good.
+                    if self.is_disposal_folder(&key) {
+                        self.ask_delete_forever(id, key);
+                    } else {
+                        self.remove_message(id, key, crate::worker::Removal::Trash);
+                    }
                 }
             }
+            EmptyFolder => match self.current.clone() {
+                Some(key) if self.is_disposal_folder(&key) => {
+                    let (name, n) = self.mailbox(&key).map(|m| (m.name.clone(), m.total)).unwrap_or_default();
+                    let n = n.max(self.envelopes.len());
+                    self.mode = Mode::ConfirmEmpty { prompt: format!("delete all {n} message(s) in {name} for good? It cannot be undone"), key };
+                }
+                Some(_) => self.status = "only the Trash and Spam folders can be emptied".into(),
+                None => {}
+            },
             DeleteForever => {
                 if let (Some(id), Some(key)) = (self.target_message(), self.current.clone()) {
-                    let subject = self.envelope_index(id).map(|i| self.envelopes[i].subject.clone()).unwrap_or_default();
-                    let subject: String = if subject.chars().count() > 50 { subject.chars().take(49).chain(['…']).collect() } else { subject };
-                    self.mode = Mode::ConfirmDelete { prompt: format!("delete “{subject}” for good? It cannot be undone"), id, key };
+                    self.ask_delete_forever(id, key);
                 }
             }
             MoveTo => {
