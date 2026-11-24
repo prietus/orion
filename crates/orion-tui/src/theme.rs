@@ -35,6 +35,9 @@ pub struct Theme {
     pub warn: Color,
     pub error: Color,
     pub info: Color,
+    /// Colours that tell things apart (accounts, senders): never carry a
+    /// meaning by themselves, only "this one, not that one".
+    pub identity: Vec<Color>,
 }
 
 impl Theme {
@@ -60,6 +63,7 @@ impl Theme {
                 warn: Color::Yellow,
                 error: Color::Red,
                 info: Color::Blue,
+                identity: vec![Color::Blue, Color::Green, Color::Yellow, Color::Magenta, Color::Cyan, Color::LightRed, Color::LightBlue, Color::LightGreen],
             },
             _ => return None,
         })
@@ -82,6 +86,8 @@ struct Palette {
     green: u32,
     yellow: u32,
     red: u32,
+    teal: u32,
+    sapphire: u32,
 }
 
 const MOCHA: Palette = Palette {
@@ -99,6 +105,8 @@ const MOCHA: Palette = Palette {
     green: 0xa6e3a1,
     yellow: 0xf9e2af,
     red: 0xf38ba8,
+    teal: 0x94e2d5,
+    sapphire: 0x74c7ec,
 };
 const MACCHIATO: Palette = Palette {
     text: 0xcad3f5,
@@ -115,6 +123,8 @@ const MACCHIATO: Palette = Palette {
     green: 0xa6da95,
     yellow: 0xeed49f,
     red: 0xed8796,
+    teal: 0x8bd5ca,
+    sapphire: 0x7dc4e4,
 };
 const FRAPPE: Palette = Palette {
     text: 0xc6d0f5,
@@ -131,6 +141,8 @@ const FRAPPE: Palette = Palette {
     green: 0xa6d189,
     yellow: 0xe5c890,
     red: 0xe78284,
+    teal: 0x81c8be,
+    sapphire: 0x85c1dc,
 };
 const LATTE: Palette = Palette {
     text: 0x4c4f69,
@@ -147,6 +159,8 @@ const LATTE: Palette = Palette {
     green: 0x40a02b,
     yellow: 0xdf8e1d,
     red: 0xd20f39,
+    teal: 0x179299,
+    sapphire: 0x209fb5,
 };
 
 fn rgb(c: u32) -> Color {
@@ -170,6 +184,37 @@ fn catppuccin(p: Palette) -> Theme {
         warn: rgb(p.yellow),
         error: rgb(p.red),
         info: rgb(p.blue),
+        identity: [p.blue, p.green, p.peach, p.pink, p.teal, p.yellow, p.sapphire, p.mauve, p.red, p.lavender].into_iter().map(rgb).collect(),
+    }
+}
+
+impl Theme {
+    /// The colour of the n-th account (they cycle).
+    pub fn account(&self, index: usize) -> Color {
+        self.identity[index % self.identity.len()]
+    }
+
+    /// A stable colour for a person: the same address always gets the same one.
+    pub fn person(&self, address: &str) -> Color {
+        // FNV-1a over the lower-cased address: stable across runs and machines.
+        let mut h: u32 = 0x811c9dc5;
+        for b in address.trim().to_ascii_lowercase().bytes() {
+            h = (h ^ b as u32).wrapping_mul(0x01000193);
+        }
+        self.identity[h as usize % self.identity.len()]
+    }
+}
+
+/// "AG" for "Ana García", "A" for "amazon.es": what an avatar shows.
+pub fn initials(name: &str, address: &str) -> String {
+    let source = if name.trim().is_empty() { address.split('@').next().unwrap_or("") } else { name.trim() };
+    let mut words = source.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
+    let first = words.next().and_then(|w| w.chars().next());
+    let second = words.next().and_then(|w| w.chars().next());
+    match (first, second) {
+        (Some(a), Some(b)) => format!("{}{}", a.to_uppercase(), b.to_uppercase()),
+        (Some(a), None) => a.to_uppercase().to_string(),
+        _ => "?".into(),
     }
 }
 
@@ -268,6 +313,14 @@ mod tests {
         }
         assert!(Theme::named("nope").is_none());
         assert_eq!(Theme::named("mocha").unwrap().accent, Color::Rgb(0xcb, 0xa6, 0xf7));
+        let t = Theme::named("mocha").unwrap();
+        assert_eq!(t.person("Ana@Example.org"), t.person("ana@example.org "), "stable, case-insensitive");
+        assert_ne!(t.account(0), t.account(1));
+        assert_eq!(t.account(0), t.account(t.identity.len()));
+        assert_eq!(initials("Ana García", "x@y"), "AG");
+        assert_eq!(initials("", "amazon@x.org"), "A");
+        assert_eq!(initials("\"Ruiz, Dana\"", "d@x"), "RD");
+        assert_eq!(initials("", ""), "?");
         assert!(matches!(Icon::for_mailbox("INBOX", "INBOX"), Icon::Inbox));
         assert!(matches!(Icon::for_mailbox("x", "Papelera"), Icon::Trash));
         assert!(matches!(Icon::for_mailbox("x", "[Gmail]/Spam"), Icon::Junk));

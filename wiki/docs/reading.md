@@ -26,6 +26,25 @@ icons mark flagged, answered and with-attachment messages.
 
 `[ui] list_style = "compact"` packs one message per line.
 
+### What the colours mean
+
+Orion uses colour only where it says something:
+
+| Where | What you see | What it tells you |
+|---|---|---|
+| Accounts | each has its own colour: in the sidebar, in the list title and on the selection bar | which account you are in |
+| Avatars | a chip with the sender's initials; the same person always has the same colour | who wrote, at a glance |
+| Avatar fill | filled while the message is **unread**, faint once read | the weight of the list is what is pending |
+| Folder icons | inbox blue, sent green, drafts yellow, Spam and Trash faint | what each folder is for |
+| Unread counts | a pill in the inbox, a number elsewhere, grey in Spam and Trash | where unread mail matters |
+| Dates | bright today, medium this week, faint when older | how recent |
+| Security | `ENCRYPTED` / `SIGNED` pills: green fine, yellow needs you, red wrong | the state of encryption and signature |
+| Attachments | PDF red, images blue, archives yellow, spreadsheets green… | what kind of file |
+
+`[ui] avatars = false` hides the avatars; `[ui] theme` changes the palette
+(`mocha`, `macchiato`, `frappe`, `latte`, or `terminal` for your terminal's
+own colours).
+
 ## Conversations
 
 Messages that answer each other — through their `Message-ID`, `In-Reply-To`

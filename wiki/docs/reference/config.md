@@ -25,6 +25,8 @@ prefer_html = true
 html_colors = "auto"
 max_image_rows = 30
 link_markers = true
+# a coloured chip with the sender's initials in the list and the reader
+avatars = true
 # colours: "mocha", "macchiato", "frappe", "latte" (Catppuccin) or "terminal"
 theme = "mocha"
 # Nerd Font icons (needs a Nerd Font or "Symbols Nerd Font" installed)

@@ -124,6 +124,13 @@ yourself; answering an encrypted message starts with encryption on.
   "latte"`, or `"terminal"` for the terminal's own 16 colours), Nerd Font icons
   (`[ui] icons = false` for plain symbols), and a two-line message list with
   relative dates (`[ui] list_style = "compact"` for one line per message).
+  Colour always means something: each account has its own colour (sidebar,
+  list title, selection bar); senders get an avatar with their initials in a
+  colour of their own, filled while the message is unread (`[ui] avatars =
+  false` hides them); folder icons are coloured by role; unread counts are a
+  pill in the inbox and faint in Spam/Trash; dates fade with age; encryption
+  and signature states are green/yellow/red pills; attachments are coloured
+  by kind.
   `ORION_SHOT_DIR=dir cargo test -p orion-tui screenshots -- --ignored` plus
   `scripts/render_shot.py` produce PNG screenshots for design work.
 - **Conversations**: the list groups messages that answer each other

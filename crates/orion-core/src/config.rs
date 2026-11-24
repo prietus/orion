@@ -54,6 +54,9 @@ pub struct UiConfig {
     pub max_image_rows: u16,
     /// Append `[n]` after each link.
     pub link_markers: bool,
+    /// A coloured chip with the sender's initials before each message (the
+    /// same person always gets the same colour).
+    pub avatars: bool,
     /// Program used to open links (receives the URL as its last argument).
     pub open_command: String,
     /// Editor for writing mail (may include arguments, e.g. "code --wait").
@@ -188,6 +191,7 @@ impl Default for UiConfig {
             html_colors: HtmlColors::Auto,
             max_image_rows: 30,
             link_markers: true,
+            avatars: true,
             open_command: "xdg-open".into(),
             editor: None,
             remote_images: RemoteImages::Ask,
@@ -555,6 +559,8 @@ prefer_html = true
 html_colors = "auto"
 max_image_rows = 30
 link_markers = true
+# a coloured chip with the sender's initials in the list and the reader
+avatars = true
 # colours: "mocha", "macchiato", "frappe", "latte" (Catppuccin) or "terminal"
 theme = "mocha"
 # Nerd Font icons (needs a Nerd Font or "Symbols Nerd Font" installed)

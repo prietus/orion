@@ -31,6 +31,49 @@ fn pane(title: String, focused: bool) -> Block<'static> {
     Block::bordered().border_type(BorderType::Rounded).border_style(border).title(Span::styled(title, title_style))
 }
 
+/// A small label on a coloured background ("chip").
+fn chip(text: impl Into<String>, color: ratatui::style::Color) -> Span<'static> {
+    Span::styled(text.into(), Style::new().fg(t().surface).bg(color).bold())
+}
+
+/// How strongly an avatar is drawn.
+#[derive(Clone, Copy, PartialEq)]
+enum Avatar {
+    /// Filled with the person's colour: unread mail, the open message.
+    Filled,
+    /// Initials in the person's colour on a faint background: read mail.
+    Soft,
+    /// Initials only: on the selected row, whose background wins anyway.
+    Plain,
+}
+
+/// The sender's initials in their own colour.
+fn avatar(name: &str, address: &str, how: Avatar) -> Span<'static> {
+    let (th, color) = (t(), t().person(address));
+    let text = format!(" {:^2} ", crate::theme::initials(name, address));
+    match how {
+        Avatar::Filled => chip(text, color),
+        Avatar::Soft => Span::styled(text, Style::new().fg(color).bg(th.selection)),
+        Avatar::Plain => Span::styled(text, Style::new().fg(color).bold()),
+    }
+}
+
+/// Colour of an attachment by what it is (documents, images, archives…).
+fn file_color(name: &str) -> ratatui::style::Color {
+    let th = t();
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "pdf" => th.error,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "heic" | "bmp" | "tiff" => th.info,
+        "zip" | "gz" | "tar" | "tgz" | "7z" | "rar" | "xz" | "bz2" | "zst" => th.warn,
+        "xls" | "xlsx" | "ods" | "csv" | "tsv" => th.ok,
+        "doc" | "docx" | "odt" | "rtf" | "txt" | "md" | "ppt" | "pptx" | "odp" => th.accent2,
+        "mp3" | "flac" | "wav" | "ogg" | "m4a" | "mp4" | "mkv" | "mov" | "webm" => th.flagged,
+        "asc" | "gpg" | "pgp" | "sig" | "key" | "p7s" => th.accent,
+        _ => th.subtext,
+    }
+}
+
 /// Background of the selected row.
 fn selected(focused: bool) -> Style {
     Style::new().bg(if focused { t().selection_focused } else { t().selection })
@@ -125,9 +168,12 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         if n > 0 {
             items.push(ListItem::new(Line::raw("")));
         }
+        // Each account has its own colour: here, in the list title and on
+        // the selection, so you always know which one you are in.
+        let account_color = th.account(n);
         let mut head = vec![
-            Span::styled(format!(" {} ", Icon::Account.glyph()), Style::new().fg(th.accent2)),
-            Span::styled(acc.name.clone(), Style::new().fg(th.accent2).bold()),
+            Span::styled(format!(" {} ", Icon::Account.glyph()), Style::new().fg(account_color)),
+            Span::styled(acc.name.clone(), Style::new().fg(account_color).bold()),
         ];
         if !acc.progress.is_empty() {
             head.push(Span::styled(format!(" {}", Icon::Syncing.glyph()), Style::new().fg(th.warn)));
@@ -148,23 +194,34 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             let depth = mb.name.matches('/').count();
             let leaf = mb.name.rsplit('/').next().unwrap_or(&mb.name).to_string();
             let icon = Icon::for_mailbox(&mb.id, &mb.name);
+            // Folder icons are coloured by what the folder is for.
+            let disposal = matches!(icon, Icon::Trash | Icon::Junk);
             let icon_color = match icon {
                 Icon::Inbox => th.info,
+                Icon::Sent => th.ok,
+                Icon::Drafts => th.warn,
                 Icon::Trash | Icon::Junk => th.overlay,
                 _ => th.subtext,
             };
-            let name_style = match (is_current, mb.unread > 0) {
-                (true, _) => Style::new().fg(th.accent).bold(),
+            let name_style = match (is_current, mb.unread > 0 && !disposal) {
+                (true, _) => Style::new().fg(account_color).bold(),
                 (false, true) => Style::new().fg(th.text).bold(),
                 (false, false) => Style::new().fg(th.subtext),
             };
             let left = vec![
-                Span::styled(if is_current { " ▌" } else { "  " }, Style::new().fg(th.accent)),
+                Span::styled(if is_current { " ▌" } else { "  " }, Style::new().fg(account_color)),
                 Span::raw("  ".repeat(depth + 1)),
-                Span::styled(format!("{} ", icon.glyph()), Style::new().fg(if is_current { th.accent } else { icon_color })),
+                Span::styled(format!("{} ", icon.glyph()), Style::new().fg(icon_color)),
                 Span::styled(leaf, name_style),
             ];
-            let right = if mb.unread > 0 { vec![Span::styled(format!("{} ", mb.unread), Style::new().fg(th.unread).bold())] } else { vec![] };
+            // Unread mail matters most in the inbox (a pill), least in Spam/Trash (faint).
+            let right = match (mb.unread, &icon) {
+                (0, _) => vec![],
+                // (On the selected row its background wins: a plain number there.)
+                (n, Icon::Inbox) if flat != app.sidebar_sel => vec![chip(format!(" {n} "), th.unread), Span::raw(" ")],
+                (n, _) if disposal => vec![Span::styled(format!("{n} "), Style::new().fg(th.overlay))],
+                (n, _) => vec![Span::styled(format!("{n} "), Style::new().fg(th.unread).bold())],
+            };
             items.push(ListItem::new(spread(left, right, width)));
             flat += 1;
         }
@@ -186,7 +243,17 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
         None => " No mailbox ".into(),
     };
     let focused = app.focus == Focus::List;
-    let block = pane(title, focused);
+    let account_color = app.current.as_ref().map(|k| th.account(k.0)).unwrap_or(th.accent);
+    let mut block = pane(String::new(), focused);
+    block = match title.strip_prefix(&format!(" {account}")) {
+        Some(rest) if !account.is_empty() => block.title(Line::from(vec![
+            Span::styled(format!(" {account}"), Style::new().fg(account_color).bold()),
+            Span::styled(rest.to_string(), if focused { Style::new().fg(th.accent).bold() } else { Style::new().fg(th.subtext) }),
+        ])),
+        _ => pane(title, focused),
+    };
+    let avatars = app.cfg.ui.avatars;
+    let now = chrono::Local::now().timestamp();
     let inner = block.inner(area);
     let two_line = app.cfg.ui.list_style == ListStyle::TwoLine;
     // Rows per message: sender, then subject.
@@ -223,7 +290,7 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
                 (true, true) => ("└ ", "  "),
             };
             let tree = |t: &'static str| Span::styled(t, Style::new().fg(th.border));
-            let dot = Span::styled(if unread { format!(" {} ", Icon::Unread.glyph()) } else { "   ".into() }, Style::new().fg(th.unread));
+            let dot = Span::styled(if unread { format!("{} ", Icon::Unread.glyph()) } else { "  ".into() }, Style::new().fg(th.unread));
             let sender_style = if unread { Style::new().fg(th.text).bold() } else { Style::new().fg(th.subtext) };
             let subject_style = if unread { Style::new().fg(th.text) } else { Style::new().fg(th.overlay) };
             let mut marks: Vec<Span> = Vec::new();
@@ -236,17 +303,38 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
             if any(&|m| m.has_attachments) {
                 marks.push(Span::styled(format!("{} ", Icon::Attachment.glyph()), Style::new().fg(th.subtext)));
             }
-            let date = Span::styled(short_date(e.timestamp), Style::new().fg(if unread { th.unread } else { th.overlay }));
+            // Dates fade with age: today, this week, older.
+            let age = now - e.timestamp;
+            let date_color = match age {
+                _ if unread => th.unread,
+                a if a < 86_400 => th.text,
+                a if a < 7 * 86_400 => th.subtext,
+                _ => th.overlay,
+            };
+            let date = Span::styled(short_date(e.timestamp), Style::new().fg(date_color));
             let subject = if e.subject.trim().is_empty() { "(no subject)".to_string() } else { e.subject.clone() };
             // Who: the conversation's participants and how many messages, or the sender.
             let mut who = vec![dot, tree(tree1)];
+            if avatars {
+                // Your own messages get the sent icon instead of initials.
+                if app.is_sent(i) {
+                    who.push(Span::styled(format!(" {}  ", Icon::Sent.glyph()), Style::new().fg(th.info)));
+                } else {
+                    // Filled while unread, faint once read: the list's weight is the unread mail.
+                    let how = if pos == sel { Avatar::Plain } else if unread { Avatar::Filled } else { Avatar::Soft };
+                    who.push(avatar(&e.from_name, &e.from_addr, how));
+                }
+                who.push(Span::raw(" "));
+            }
             if thread {
                 who.push(Span::styled(crate::threads::participants(&app.envelopes, members, 3), sender_style));
                 let n = members.len();
                 let chevron = if info.expanded { "▾" } else { "▸" };
                 who.push(Span::styled(format!(" {chevron}{n}"), Style::new().fg(th.accent2).bold()));
             } else if app.is_sent(i) {
-                who.push(Span::styled(format!("{} ", Icon::Sent.glyph()), Style::new().fg(th.info)));
+                if !avatars {
+                    who.push(Span::styled(format!("{} ", Icon::Sent.glyph()), Style::new().fg(th.info)));
+                }
                 who.push(Span::styled("me", Style::new().fg(th.info)));
             } else {
                 who.push(Span::styled(e.sender().to_string(), sender_style));
@@ -255,7 +343,7 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
                 Row::new(vec![
                     Cell::from(Text::from(vec![
                         Line::from(who),
-                        Line::from(vec![Span::raw("   "), tree(tree2), Span::styled(subject, subject_style)]),
+                        Line::from(vec![Span::raw("  "), tree(tree2), Span::raw(if avatars { "     " } else { "" }), Span::styled(subject, subject_style)]),
                     ])),
                     Cell::from(Text::from(vec![Line::from(date), Line::from(marks)]).right_aligned()),
                 ])
@@ -279,7 +367,15 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         vec![Constraint::Percentage(28), Constraint::Fill(1), Constraint::Length(6), Constraint::Length(date_w)]
     };
-    let table = Table::new(rows, widths).column_spacing(1).block(block).row_highlight_style(selected(focused));
+    // The selection carries the account's colour on its left edge.
+    let bar = Style::new().fg(if focused { account_color } else { th.border });
+    let symbol = if two_line { Text::from(vec![Line::styled("▌", bar), Line::styled("▌", bar)]) } else { Text::from(Line::styled("▌", bar)) };
+    let table = Table::new(rows, widths)
+        .column_spacing(1)
+        .block(block)
+        .highlight_symbol(symbol)
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+        .row_highlight_style(selected(focused));
 
     // The table state works on the clipped window.
     let mut window_state = ratatui::widgets::TableState::default().with_selected(
@@ -362,11 +458,15 @@ fn draw_reader(f: &mut Frame, app: &mut App, area: Rect) {
             Some((n, a)) if !n.trim().is_empty() => (n.trim().trim_matches('"').to_string(), format!("<{a}")),
             _ => (view.from.clone(), String::new()),
         };
-        lines.push(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(name, Style::new().fg(t().accent2).bold()),
-            Span::styled(format!(" {addr}"), Style::new().fg(t().overlay)),
-        ]));
+        let address = addr.trim_matches(['<', '>', ' ']).to_string();
+        let mut from = vec![Span::raw(" ")];
+        if ui_cfg.avatars {
+            from.push(avatar(&name, &address, Avatar::Filled));
+            from.push(Span::raw(" "));
+        }
+        from.push(Span::styled(name, Style::new().fg(t().person(&address)).bold()));
+        from.push(Span::styled(format!(" {addr}"), Style::new().fg(t().overlay)));
+        lines.push(Line::from(from));
         let mut meta = vec![Span::styled(" to ", Style::new().fg(t().overlay)), Span::styled(view.to.clone(), Style::new().fg(t().subtext))];
         if !view.cc.is_empty() {
             meta.push(Span::styled("  cc ", Style::new().fg(t().overlay)));
@@ -387,8 +487,10 @@ fn draw_reader(f: &mut Frame, app: &mut App, area: Rect) {
             if n > 0 {
                 spans.push(Span::raw("  "));
             }
+            // Coloured by kind: PDFs, images, archives, documents…
             let icon = format!("{} ", Icon::Attachment.glyph());
-            spans.push(Span::styled(format!("{icon}{} ({})", at.name, human_size(at.size())), Style::new().fg(t().accent2)));
+            spans.push(Span::styled(format!("{icon}{}", at.name), Style::new().fg(file_color(&at.name))));
+            spans.push(Span::styled(format!(" ({})", human_size(at.size())), Style::new().fg(t().overlay)));
         }
         lines.push(Line::from(spans));
     }
@@ -581,6 +683,13 @@ fn crypto_lines(c: &CryptoReport, label: &dyn Fn(&str) -> Span<'static>) -> Vec<
     let yellow = Style::new().fg(t().warn);
     let red = Style::new().fg(t().error).bold();
     let mut out = Vec::new();
+    // The state at a glance: a pill in the colour of the result (green: fine,
+    // yellow: needs you, red: wrong), where the other headers have a label.
+    let pill = |text: &str, st: Style| {
+        let pad = 11usize.saturating_sub(text.chars().count() + 2);
+        vec![Span::raw(" ".repeat(pad)), chip(format!(" {text} "), st.fg.unwrap_or(t().ok)), Span::raw("  ")]
+    };
+    let _ = label;
     if c.encrypted {
         let line = if c.decrypted {
             let mut t = format!("🔒 decrypted ({})", c.format);
@@ -606,9 +715,13 @@ fn crypto_lines(c: &CryptoReport, label: &dyn Fn(&str) -> Span<'static>) -> Vec<
             };
             Span::styled(t.replace('🔒', Icon::Encrypted.glyph()), st)
         };
-        out.push(Line::from(vec![label("Encryption"), line]));
+        let mut spans = pill("ENCRYPTED", line.style);
+        spans.push(line);
+        out.push(Line::from(spans));
     } else if let Some(CryptoProblem::Failed(m)) = &c.problem {
-        out.push(Line::from(vec![label("Signature"), Span::styled(format!("✘ could not verify: {m}"), red)]));
+        let mut spans = pill("SIGNED", red);
+        spans.push(Span::styled(format!("✘ could not verify: {m}"), red));
+        out.push(Line::from(spans));
     }
     for sig in &c.signatures {
         let trust = match sig.trust {
@@ -630,7 +743,9 @@ fn crypto_lines(c: &CryptoReport, label: &dyn Fn(&str) -> Span<'static>) -> Vec<
             SigStatus::UnknownKey => (format!("? cannot verify: missing public key {}", short(&sig.fingerprint)), yellow),
             SigStatus::Error => ("✘ error verifying the signature".to_string(), red),
         };
-        out.push(Line::from(vec![label("Signature"), Span::styled(t, st)]));
+        let mut spans = pill("SIGNED", st);
+        spans.push(Span::styled(t, st));
+        out.push(Line::from(spans));
     }
     out
 }
