@@ -79,11 +79,13 @@ REF=wiki/docs/reference
 # ---- screenshots, from the test with invented data
 SHOTS="$(mktemp -d)"
 ORION_SHOT_DIR="$SHOTS" cargo test -q -p orion-tui screenshots -- --ignored >/dev/null
-for pair in reader:screenshot thread:conversations compose:compose original:original; do
+for pair in reader:reader thread:conversations compose:compose original:original; do
   src="${pair%%:*}"; dst="${pair##*:}"
   [ -f "$SHOTS/$src.json" ] && "$VENV/bin/python" scripts/render_shot.py "$SHOTS/$src.json" "wiki/docs/img/$dst.png"
 done
 rm -rf "$SHOTS"
+# The front page shows the README's screenshot (a real session, anonymised).
+cp docs/screenshot.png wiki/docs/img/screenshot.png
 
 case "$1" in
   --serve) exec "$VENV/bin/mkdocs" serve -f wiki/mkdocs.yml ;;

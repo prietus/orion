@@ -6,6 +6,8 @@ OpenPGP card through `scdaemon`.
 
 ## Reading
 
+![An encrypted and signed message, decrypted with a YubiKey](img/reader.png)
+
 - PGP/MIME (RFC 3156) signed and encrypted messages, protected subjects, and
   inline PGP (`BEGIN PGP MESSAGE`).
 - When an encrypted message is opened, Orion tries to decrypt it at once. If
